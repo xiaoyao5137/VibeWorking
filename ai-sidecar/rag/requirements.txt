@@ -1,0 +1,24 @@
+# RAG 服务依赖
+
+# Embedding 模型
+sentence-transformers>=2.2.0
+torch>=2.0.0
+
+# 向量数据库
+qdrant-client>=1.7.0
+
+# HTTP 服务
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# LLM 客户端
+openai>=1.0.0  # 兼容 Ollama 和云端 API
+httpx>=0.25.0
+
+# 工具库
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+
+# 测试
+pytest>=7.4.0
+pytest-asyncio>=0.21.0

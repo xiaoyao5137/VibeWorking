@@ -1,0 +1,11 @@
+FROM "/Users/xianjiaqi/Documents/mygit/cy/gzdz/ai-sidecar/~/.workbuddy/models/Qwen/Qwen2___5-3B-Instruct-GGUF/qwen2.5-3b-instruct-q4_k_m.gguf"
+
+TEMPLATE """{{ if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{ end }}<|im_start|>assistant
+"""
+
+PARAMETER stop "<|im_start|>"
+PARAMETER stop "<|im_end|>"

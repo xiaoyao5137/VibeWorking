@@ -1,0 +1,224 @@
+"""
+混合检索器
+
+结合 Qdrant 语义检索和 SQLite FTS5 关键词检索，使用 RRF 融合结果
+"""
+
+import logging
+import sqlite3
+from typing import List, Dict, Any, Optional
+from .qdrant_manager import QdrantManager
+from .embedding import get_embedding_service
+
+logger = logging.getLogger(__name__)
+
+
+class HybridRetriever:
+    """混合检索器（向量 + 关键词）"""
+    
+    def __init__(
+        self,
+        qdrant_manager: QdrantManager,
+        sqlite_db_path: str,
+    ):
+        """
+        初始化混合检索器
+        
+        Args:
+            qdrant_manager: Qdrant 管理器
+            sqlite_db_path: SQLite 数据库路径
+        """
+        self.qdrant = qdrant_manager
+        self.db_path = sqlite_db_path
+        self.embedding_service = get_embedding_service()
+        logger.info(f"初始化 HybridRetriever，数据库: {sqlite_db_path}")
+    
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 10,
+        vector_weight: float = 0.6,
+        keyword_weight: float = 0.4,
+    ) -> List[Dict[str, Any]]:
+        """
+        混合检索
+        
+        Args:
+            query: 查询文本
+            top_k: 返回结果数量
+            vector_weight: 向量检索权重
+            keyword_weight: 关键词检索权重
+            
+        Returns:
+            融合后的检索结果
+        """
+        logger.info(f"混合检索: {query[:50]}...")
+        
+        # 1. 向量检索
+        vector_results = self._vector_search(query, top_k * 2)
+        
+        # 2. 关键词检索
+        keyword_results = self._keyword_search(query, top_k * 2)
+        
+        # 3. RRF 融合
+        merged = self._rrf_merge(
+            vector_results,
+            keyword_results,
+            vector_weight,
+            keyword_weight,
+            top_k,
+        )
+        
+        logger.info(f"检索完成，返回 {len(merged)} 条结果")
+        return merged
+    
+    def _vector_search(self, query: str, top_k: int) -> List[Dict[str, Any]]:
+        """Qdrant 向量检索"""
+        try:
+            # 查询向量化
+            query_vector = self.embedding_service.encode_single(query)
+            
+            # 向量搜索
+            results = self.qdrant.search(
+                query_vector=query_vector,
+                top_k=top_k,
+                score_threshold=0.3,  # 相似度阈值
+            )
+            
+            # 转换为统一格式
+            output = []
+            for r in results:
+                output.append({
+                    "capture_id": r["payload"].get("capture_id"),
+                    "text": r["payload"].get("text", ""),
+                    "score": r["score"],
+                    "source": "vector",
+                    "app_name": r["payload"].get("app_name"),
+                    "timestamp": r["payload"].get("timestamp"),
+                })
+            
+            logger.debug(f"向量检索返回 {len(output)} 条结果")
+            return output
+        except Exception as e:
+            logger.error(f"向量检索失败: {e}")
+            return []
+    
+    def _keyword_search(self, query: str, top_k: int) -> List[Dict[str, Any]]:
+        """SQLite FTS5 关键词检索"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # FTS5 全文搜索
+            cursor.execute(
+                """
+                SELECT 
+                    c.id as capture_id,
+                    c.extracted_text,
+                    c.ocr_text,
+                    c.app_name,
+                    c.ts,
+                    fts.rank
+                FROM captures_fts fts
+                JOIN captures c ON fts.rowid = c.id
+                WHERE captures_fts MATCH ?
+                ORDER BY rank
+                LIMIT ?
+                """,
+                (query, top_k),
+            )
+            
+            results = []
+            for row in cursor.fetchall():
+                text = row["extracted_text"] or row["ocr_text"] or ""
+                results.append({
+                    "capture_id": row["capture_id"],
+                    "text": text,
+                    "score": abs(row["rank"]),  # FTS5 rank 是负数
+                    "source": "keyword",
+                    "app_name": row["app_name"],
+                    "timestamp": row["ts"],
+                })
+            
+            conn.close()
+            logger.debug(f"关键词检索返回 {len(results)} 条结果")
+            return results
+        except Exception as e:
+            logger.error(f"关键词检索失败: {e}")
+            return []
+    
+    def _rrf_merge(
+        self,
+        vector_results: List[Dict[str, Any]],
+        keyword_results: List[Dict[str, Any]],
+        vector_weight: float,
+        keyword_weight: float,
+        top_k: int,
+    ) -> List[Dict[str, Any]]:
+        """
+        Reciprocal Rank Fusion (RRF) 融合算法
+        
+        RRF 公式: score = Σ (weight / (k + rank))
+        其中 k 是常数（通常为 60）
+        """
+        k = 60  # RRF 常数
+        scores = {}  # capture_id -> score
+        details = {}  # capture_id -> 详细信息
+        
+        # 处理向量检索结果
+        for rank, item in enumerate(vector_results, start=1):
+            cid = item["capture_id"]
+            if cid is None:
+                continue
+            
+            rrf_score = vector_weight / (k + rank)
+            scores[cid] = scores.get(cid, 0) + rrf_score
+            
+            if cid not in details:
+                details[cid] = item
+                details[cid]["sources"] = []
+            details[cid]["sources"].append("vector")
+        
+        # 处理关键词检索结果
+        for rank, item in enumerate(keyword_results, start=1):
+            cid = item["capture_id"]
+            if cid is None:
+                continue
+            
+            rrf_score = keyword_weight / (k + rank)
+            scores[cid] = scores.get(cid, 0) + rrf_score
+            
+            if cid not in details:
+                details[cid] = item
+                details[cid]["sources"] = []
+            details[cid]["sources"].append("keyword")
+        
+        # 按 RRF 分数排序
+        sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+        
+        # 构建最终结果
+        merged = []
+        for cid in sorted_ids[:top_k]:
+            item = details[cid]
+            item["rrf_score"] = scores[cid]
+            item["source"] = "+".join(set(item["sources"]))  # 合并来源标记
+            merged.append(item)
+        
+        logger.debug(f"RRF 融合完成，返回 {len(merged)} 条结果")
+        return merged
+
+
+def create_retriever(
+    qdrant_host: str = "localhost",
+    qdrant_port: int = 6333,
+    sqlite_db_path: str = None,
+) -> HybridRetriever:
+    """创建混合检索器实例"""
+    if sqlite_db_path is None:
+        import os
+        home = os.environ.get("HOME", "/tmp")
+        sqlite_db_path = os.path.join(home, ".workbuddy", "workbuddy.db")
+    
+    qdrant = QdrantManager(host=qdrant_host, port=qdrant_port)
+    return HybridRetriever(qdrant, sqlite_db_path)

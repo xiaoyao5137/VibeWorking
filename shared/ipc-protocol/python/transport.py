@@ -1,0 +1,228 @@
+"""
+IPC 传输层（Python 服务端）
+
+AI Sidecar 以此模块作为 Socket 服务端，接收来自 Rust Core Engine 的任务请求，
+将请求分派给各 Worker，并将结果以帧格式写回。
+
+用法：
+    from workbuddy_ipc import IpcServer
+
+    server = IpcServer(dispatch_fn=my_dispatcher)
+    asyncio.run(server.serve())
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import platform
+import struct
+import time
+from typing import Awaitable, Callable
+
+from pydantic import TypeAdapter
+
+from .message import IpcRequest, IpcResponse, TaskRequest
+
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 常量
+# ─────────────────────────────────────────────────────────────────────────────
+
+MAX_MESSAGE_BYTES = 16 * 1024 * 1024  # 16 MB
+UNIX_SOCKET_PATH  = "/tmp/workbuddy-sidecar.sock"
+TCP_HOST          = "127.0.0.1"
+TCP_PORT          = 17071
+
+# 请求解析适配器（Pydantic v2 推荐方式）
+_task_adapter = TypeAdapter(TaskRequest)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 帧编解码
+# ─────────────────────────────────────────────────────────────────────────────
+
+class FrameCodec:
+    """帧格式：[4字节大端 uint32 长度] + [N字节 UTF-8 JSON]"""
+
+    @staticmethod
+    async def read_frame(reader: asyncio.StreamReader) -> bytes:
+        """从 StreamReader 读取一个完整帧，返回 JSON payload bytes"""
+        # 读取 4 字节 length header
+        header = await reader.readexactly(4)
+        msg_len = struct.unpack(">I", header)[0]
+
+        if msg_len > MAX_MESSAGE_BYTES:
+            raise ValueError(
+                f"消息体超过最大限制: {msg_len} > {MAX_MESSAGE_BYTES} bytes"
+            )
+
+        payload = await reader.readexactly(msg_len)
+        return payload
+
+    @staticmethod
+    async def write_frame(writer: asyncio.StreamWriter, resp: IpcResponse) -> None:
+        """将 IpcResponse 编码为帧并写入 StreamWriter"""
+        frame = resp.to_frame()
+        writer.write(frame)
+        await writer.drain()
+
+    @staticmethod
+    def parse_request(payload: bytes) -> IpcRequest:
+        """将 JSON bytes 解析为 IpcRequest（含 task 字段的 discriminated union）"""
+        import json
+        raw = json.loads(payload)
+        # task 字段需要单独用 TypeAdapter 解析
+        task = _task_adapter.validate_python(raw["task"])
+        return IpcRequest(id=raw["id"], ts=raw["ts"], task=task)  # type: ignore[arg-type]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IPC 服务端
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 分派函数类型：接收 IpcRequest，返回 IpcResponse
+DispatchFn = Callable[[IpcRequest], Awaitable[IpcResponse]]
+
+
+class IpcServer:
+    """
+    AI Sidecar 的 IPC 服务端。
+
+    - macOS/Linux：监听 Unix Domain Socket
+    - Windows    ：监听 TCP Loopback
+
+    每个连接在独立 asyncio task 中处理，支持并发请求。
+    """
+
+    def __init__(self, dispatch_fn: DispatchFn) -> None:
+        self._dispatch = dispatch_fn
+        self._server: asyncio.Server | None = None
+
+    # ── 启动/停止 ─────────────────────────────────────────────────────────────
+
+    async def serve(self) -> None:
+        """启动服务端，阻塞直到进程退出"""
+        if platform.system() == "Windows":
+            await self._serve_tcp()
+        else:
+            await self._serve_unix()
+
+    async def _serve_unix(self) -> None:
+        import os
+        # 清理上次遗留的 socket 文件
+        if os.path.exists(UNIX_SOCKET_PATH):
+            os.remove(UNIX_SOCKET_PATH)
+
+        self._server = await asyncio.start_unix_server(
+            self._handle_connection,
+            path=UNIX_SOCKET_PATH,
+        )
+        logger.info("IPC 服务端已启动（Unix Socket: %s）", UNIX_SOCKET_PATH)
+        async with self._server:
+            await self._server.serve_forever()
+
+    async def _serve_tcp(self) -> None:
+        self._server = await asyncio.start_server(
+            self._handle_connection,
+            host=TCP_HOST,
+            port=TCP_PORT,
+        )
+        logger.info("IPC 服务端已启动（TCP: %s:%d）", TCP_HOST, TCP_PORT)
+        async with self._server:
+            await self._server.serve_forever()
+
+    def stop(self) -> None:
+        if self._server:
+            self._server.close()
+
+    # ── 连接处理 ──────────────────────────────────────────────────────────────
+
+    async def _handle_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        """每个连接的处理循环，持续读取帧直到连接关闭"""
+        peer = writer.get_extra_info("peername", "<unix>")
+        logger.debug("新连接: %s", peer)
+
+        try:
+            while True:
+                try:
+                    payload = await FrameCodec.read_frame(reader)
+                except asyncio.IncompleteReadError:
+                    # 连接正常关闭
+                    logger.debug("连接关闭: %s", peer)
+                    break
+                except ValueError as e:
+                    logger.warning("帧解析错误: %s", e)
+                    break
+
+                # 解析请求
+                try:
+                    req = FrameCodec.parse_request(payload)
+                except Exception as e:
+                    logger.warning("请求解析失败: %s", e)
+                    # 无法解析就无法知道 req.id，只能断开连接
+                    break
+
+                # 分派给业务处理函数
+                resp = await self._safe_dispatch(req)
+                await FrameCodec.write_frame(writer, resp)
+
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    async def _safe_dispatch(self, req: IpcRequest) -> IpcResponse:
+        """调用分派函数，捕获所有异常转换为错误响应"""
+        t0 = time.monotonic()
+        try:
+            resp = await self._dispatch(req)
+            return resp
+        except Exception as e:
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            logger.exception("处理请求 %s 时发生内部错误", req.id)
+            return IpcResponse.make_error(
+                req_id=req.id,
+                code="INTERNAL_ERROR",
+                message=str(e),
+                latency_ms=latency_ms,
+            )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 默认分派器（Sidecar 入口处替换为真实实现）
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def default_dispatch(req: IpcRequest) -> IpcResponse:
+    """
+    占位分派器，实际由 ai-sidecar/main.py 中的真实分派器覆盖。
+    此处仅处理 ping，其余任务返回 NOT_IMPLEMENTED。
+    """
+    from .message import PingResult, TaskRequest
+    import time
+
+    t0 = time.monotonic()
+
+    task = req.task
+    if hasattr(task, "type") and task.type == "ping":
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        return IpcResponse.make_ok(
+            req_id=req.id,
+            result=PingResult(sidecar_version="0.1.0"),
+            latency_ms=latency_ms,
+        )
+
+    latency_ms = int((time.monotonic() - t0) * 1000)
+    return IpcResponse.make_error(
+        req_id=req.id,
+        code="NOT_IMPLEMENTED",
+        message=f"Task type '{getattr(task, 'type', '?')}' not implemented in default dispatcher",
+        latency_ms=latency_ms,
+    )

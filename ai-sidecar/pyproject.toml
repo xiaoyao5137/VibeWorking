@@ -1,0 +1,18 @@
+[build-system]
+requires      = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "workbuddy-sidecar"
+version         = "0.1.0"
+description     = "WorkBuddy AI 推理 Sidecar（OCR / ASR / VLM / Embedding / RAG）"
+requires-python = ">=3.11"
+dependencies    = [
+    "workbuddy-ipc",
+    "pydantic>=2.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths    = ["tests"]
+pythonpath   = ["."]        # 让 pytest 能找到 ocr/, dispatcher.py 等顶层模块

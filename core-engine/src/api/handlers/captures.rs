@@ -1,0 +1,76 @@
+//! GET /captures?from=&to=&app=&q=&limit= — 查询采集记录
+
+use std::sync::Arc;
+
+use axum::{
+    extract::{Query, State},
+    Json,
+};
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    api::{error::ApiError, state::AppState},
+    storage::{
+        models::CaptureRecord,
+        repo::capture::CaptureFilter,
+    },
+};
+
+/// 查询参数
+#[derive(Deserialize, Debug, Default)]
+pub struct CapturesQuery {
+    /// 起始时间戳（毫秒）
+    pub from:  Option<i64>,
+    /// 结束时间戳（毫秒）
+    pub to:    Option<i64>,
+    /// 应用名精确过滤
+    pub app:   Option<String>,
+    /// 全文检索关键词（FTS5）
+    pub q:     Option<String>,
+    /// 最大返回数量（默认 50，最大 500）
+    pub limit: Option<usize>,
+}
+
+/// 查询响应体
+#[derive(Serialize)]
+pub struct CapturesResponse {
+    pub total:    usize,
+    pub captures: Vec<CaptureRecord>,
+}
+
+pub async fn list_captures(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<CapturesQuery>,
+) -> Result<Json<CapturesResponse>, ApiError> {
+    let limit = params.limit.unwrap_or(50).min(500);
+
+    let storage = state.storage.clone();
+
+    if let Some(q) = params.q.filter(|s| !s.is_empty()) {
+        // FTS5 全文搜索
+        let rows = tokio::task::spawn_blocking(move || {
+            storage.search_captures(&q, limit)
+        })
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))??;
+
+        let total = rows.len();
+        return Ok(Json(CapturesResponse { total, captures: rows }));
+    }
+
+    // 时间 / 应用过滤
+    let mut filter = CaptureFilter::new();
+    filter.app_name = params.app;
+    filter.from_ts  = params.from;
+    filter.to_ts    = params.to;
+    filter.limit    = limit;
+
+    let rows = tokio::task::spawn_blocking(move || {
+        storage.list_captures(&filter)
+    })
+    .await
+    .map_err(|e| ApiError::Internal(e.to_string()))??;
+
+    let total = rows.len();
+    Ok(Json(CapturesResponse { total, captures: rows }))
+}

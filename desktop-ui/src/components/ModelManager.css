@@ -1,0 +1,296 @@
+/* ModelManager.css - 模型管理面板样式 */
+
+.model-manager {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  background: #f5f5f5;
+  min-height: 100vh;
+}
+
+.model-manager .header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.model-manager .header h2 {
+  margin: 0;
+  font-size: 24px;
+  color: #333;
+}
+
+.model-manager .refresh-btn {
+  padding: 8px 16px;
+  background: #1890ff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.model-manager .refresh-btn:hover {
+  background: #40a9ff;
+}
+
+/* 标签页 */
+.model-manager .tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #e8e8e8;
+}
+
+.model-manager .tab {
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 16px;
+  color: #666;
+  transition: all 0.3s;
+}
+
+.model-manager .tab:hover {
+  color: #1890ff;
+}
+
+.model-manager .tab.active {
+  color: #1890ff;
+  border-bottom-color: #1890ff;
+  font-weight: 600;
+}
+
+/* 加载状态 */
+.model-manager .loading {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+  font-size: 16px;
+}
+
+/* 模型列表 */
+.model-manager .model-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 20px;
+}
+
+/* 模型卡片 */
+.model-manager .model-card {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s;
+}
+
+.model-manager .model-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}
+
+.model-manager .model-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.model-manager .model-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.model-manager .model-title h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #333;
+}
+
+.model-manager .status-badge {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  color: white;
+  font-weight: 500;
+}
+
+.model-manager .default-badge {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  background: #faad14;
+  color: white;
+  font-weight: 500;
+}
+
+.model-manager .model-size {
+  font-size: 14px;
+  color: #999;
+  font-weight: 500;
+}
+
+.model-manager .model-description {
+  color: #666;
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 12px 0;
+}
+
+.model-manager .model-meta {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.model-manager .meta-item {
+  font-size: 12px;
+  color: #999;
+  background: #f5f5f5;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+/* 操作按钮 */
+.model-manager .model-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.model-manager .btn {
+  flex: 1;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+
+.model-manager .btn-primary {
+  background: #1890ff;
+  color: white;
+}
+
+.model-manager .btn-primary:hover {
+  background: #40a9ff;
+}
+
+.model-manager .btn-success {
+  background: #52c41a;
+  color: white;
+}
+
+.model-manager .btn-success:hover {
+  background: #73d13d;
+}
+
+.model-manager .btn-danger {
+  background: #ff4d4f;
+  color: white;
+}
+
+.model-manager .btn-danger:hover {
+  background: #ff7875;
+}
+
+.model-manager .btn:disabled {
+  background: #d9d9d9;
+  color: #999;
+  cursor: not-allowed;
+}
+
+/* API Key 对话框 */
+.model-manager .dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.model-manager .dialog {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  width: 90%;
+  max-width: 500px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.model-manager .dialog h3 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  color: #333;
+}
+
+.model-manager .dialog p {
+  color: #666;
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.model-manager .dialog input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  font-size: 14px;
+  margin-bottom: 16px;
+  box-sizing: border-box;
+}
+
+.model-manager .dialog input:focus {
+  outline: none;
+  border-color: #1890ff;
+}
+
+.model-manager .dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.model-manager .dialog-actions .btn {
+  flex: 0 0 auto;
+  min-width: 80px;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .model-manager .model-list {
+    grid-template-columns: 1fr;
+  }
+
+  .model-manager .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .model-manager .tabs {
+    flex-direction: column;
+    border-bottom: none;
+  }
+
+  .model-manager .tab {
+    border-bottom: 1px solid #e8e8e8;
+    text-align: left;
+  }
+
+  .model-manager .tab.active {
+    background: #e6f7ff;
+  }
+}

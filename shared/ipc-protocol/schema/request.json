@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "IpcRequest",
+  "description": "Rust Core Engine 发送给 Python AI Sidecar 的请求信封",
+  "type": "object",
+  "required": ["id", "ts", "task"],
+  "properties": {
+    "id":  { "type": "string", "format": "uuid",    "description": "UUID v4 请求唯一标识" },
+    "ts":  { "type": "integer", "minimum": 0,       "description": "Unix 毫秒时间戳" },
+    "task": {
+      "description": "任务载荷，通过 type 字段区分",
+      "oneOf": [
+        {
+          "title": "Ping",
+          "type": "object",
+          "required": ["type"],
+          "properties": { "type": { "const": "ping" } }
+        },
+        {
+          "title": "Ocr",
+          "type": "object",
+          "required": ["type", "capture_id", "screenshot_path"],
+          "properties": {
+            "type":            { "const": "ocr" },
+            "capture_id":      { "type": "integer" },
+            "screenshot_path": { "type": "string" }
+          }
+        },
+        {
+          "title": "Asr",
+          "type": "object",
+          "required": ["type", "capture_id", "audio_path"],
+          "properties": {
+            "type":       { "const": "asr" },
+            "capture_id": { "type": "integer" },
+            "audio_path": { "type": "string" },
+            "language":   { "type": ["string", "null"] }
+          }
+        },
+        {
+          "title": "Vlm",
+          "type": "object",
+          "required": ["type", "capture_id", "screenshot_path", "prompt"],
+          "properties": {
+            "type":            { "const": "vlm" },
+            "capture_id":      { "type": "integer" },
+            "screenshot_path": { "type": "string" },
+            "prompt":          { "type": "string" }
+          }
+        },
+        {
+          "title": "Embed",
+          "type": "object",
+          "required": ["type", "capture_id", "texts", "model"],
+          "properties": {
+            "type":       { "const": "embed" },
+            "capture_id": { "type": "integer" },
+            "texts":      { "type": "array", "items": { "type": "string" } },
+            "model":      { "type": "string", "default": "bge-m3" }
+          }
+        },
+        {
+          "title": "PiiScrub",
+          "type": "object",
+          "required": ["type", "capture_id", "text"],
+          "properties": {
+            "type":       { "const": "pii_scrub" },
+            "capture_id": { "type": "integer" },
+            "text":       { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}

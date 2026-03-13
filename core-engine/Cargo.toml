@@ -1,0 +1,66 @@
+[package]
+name        = "workbuddy-core"
+version     = "0.1.0"
+edition     = "2021"
+description = "WorkBuddy core engine — capture, storage, executor, API server"
+
+[[bin]]
+name = "workbuddy"
+path = "src/main.rs"
+
+[lib]
+name = "workbuddy_core"
+path = "src/lib.rs"
+
+[dependencies]
+# SQLite
+rusqlite   = { version = "0.31", features = ["bundled"] }
+
+# 异步运行时
+tokio      = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
+
+# 序列化
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# 错误处理
+thiserror  = "1"
+anyhow     = "1"
+
+# 日志
+tracing    = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# IPC 协议（共享 crate）
+workbuddy-ipc = { path = "../shared/ipc-protocol/rust" }
+
+# 时间
+chrono     = { version = "0.4", features = ["serde"] }
+
+# 截图（xcap：跨平台，直接返回 image::RgbaImage）
+xcap       = "0.8"
+
+# 图片处理（JPEG 编码）
+image      = { version = "0.25", default-features = false, features = ["jpeg"] }
+
+# REST API
+axum       = "0.7"
+tower      = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors"] }
+
+# HTTP 客户端
+reqwest    = { version = "0.11", features = ["json"] }
+
+# 键鼠自动化
+enigo      = "0.2"
+
+# UUID 生成
+uuid       = { version = "1", features = ["v4"] }
+
+# 系统资源监控
+sysinfo    = "0.30"
+
+[dev-dependencies]
+tokio          = { version = "1", features = ["full"] }
+tempfile       = "3"
+http-body-util = "0.1"

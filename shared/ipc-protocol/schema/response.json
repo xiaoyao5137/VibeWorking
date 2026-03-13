@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "IpcResponse",
+  "description": "Python AI Sidecar 发回给 Rust Core Engine 的响应信封",
+  "type": "object",
+  "required": ["id", "status", "latency_ms"],
+  "properties": {
+    "id":         { "type": "string", "description": "对应请求的 UUID" },
+    "status":     { "type": "string", "enum": ["ok", "error"] },
+    "latency_ms": { "type": "integer", "minimum": 0 },
+    "error":      { "type": ["string", "null"], "description": "{ERROR_CODE}: message" },
+    "result": {
+      "description": "成功时的结果，通过 type 区分",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "title": "PingResult",
+          "type": "object",
+          "required": ["type", "pong", "sidecar_version"],
+          "properties": {
+            "type":            { "const": "ping" },
+            "pong":            { "type": "boolean" },
+            "sidecar_version": { "type": "string" }
+          }
+        },
+        {
+          "title": "OcrResult",
+          "type": "object",
+          "required": ["type", "text", "confidence", "language"],
+          "properties": {
+            "type":       { "const": "ocr" },
+            "text":       { "type": "string" },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+            "language":   { "type": "string" }
+          }
+        },
+        {
+          "title": "AsrResult",
+          "type": "object",
+          "required": ["type", "text", "language", "segments"],
+          "properties": {
+            "type":     { "const": "asr" },
+            "text":     { "type": "string" },
+            "language": { "type": "string" },
+            "segments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["start_sec", "end_sec", "text"],
+                "properties": {
+                  "start_sec": { "type": "number" },
+                  "end_sec":   { "type": "number" },
+                  "text":      { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "title": "VlmResult",
+          "type": "object",
+          "required": ["type", "description", "scene_type", "tags"],
+          "properties": {
+            "type":        { "const": "vlm" },
+            "description": { "type": "string" },
+            "scene_type":  {
+              "type": "string",
+              "enum": ["doc_writing","im_chat","browsing","coding","spreadsheet","video_meeting","idle","unknown"]
+            },
+            "tags": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        {
+          "title": "EmbedResult",
+          "type": "object",
+          "required": ["type", "vectors", "dimension", "model"],
+          "properties": {
+            "type":      { "const": "embed" },
+            "vectors":   { "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+            "dimension": { "type": "integer" },
+            "model":     { "type": "string" }
+          }
+        },
+        {
+          "title": "PiiScrubResult",
+          "type": "object",
+          "required": ["type", "text", "redacted_count", "redacted_types"],
+          "properties": {
+            "type":           { "const": "pii_scrub" },
+            "text":           { "type": "string" },
+            "redacted_count": { "type": "integer", "minimum": 0 },
+            "redacted_types": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      ]
+    }
+  }
+}

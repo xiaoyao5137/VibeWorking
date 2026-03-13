@@ -1,0 +1,28 @@
+# WorkBuddy AI Sidecar 依赖清单
+# 安装命令：pip install -r requirements.txt
+
+# ── IPC 协议（本地包）─────────────────────────────────────────────────────────
+# 通过 pip install -e ../shared/ipc-protocol/python/ 安装
+# 已在 pyproject.toml 中声明为依赖
+
+# ── OCR ───────────────────────────────────────────────────────────────────────
+# PaddleOCR：中文 OCR 最优方案（CPU 版本）
+paddlepaddle>=2.6           # PaddlePaddle CPU 框架
+paddleocr>=2.7              # PP-OCRv4 模型封装
+
+# Apple Vision 不需要额外安装（macOS 系统内置 + subprocess 调用 swift）
+
+# ── ASR（待实现）──────────────────────────────────────────────────────────────
+# pywhispercpp>=1.0          # Whisper.cpp Python 绑定（按需启用）
+
+# ── Embedding + RAG（待实现）────────────────────────────────────────────────────
+# llama-cpp-python>=0.2      # 本地 LLM / Embedding 推理
+# llama-index>=0.10          # RAG 框架
+# qdrant-client>=1.7         # 向量数据库客户端
+
+# ── PII 脱敏（待实现）────────────────────────────────────────────────────────
+# presidio-analyzer>=2.2     # PII 识别
+# presidio-anonymizer>=2.2   # PII 匿名化
+
+# ── 基础设施 ──────────────────────────────────────────────────────────────────
+pydantic>=2.0               # 数据验证（ipc-protocol 依赖）
