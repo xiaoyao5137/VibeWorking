@@ -8,6 +8,7 @@ use workbuddy_core::{
     api::{server::start_server, state::AppState},
     capture::{start_listener, CaptureConfig, CaptureEngine, ListenerConfig},
     monitor::ResourceMonitor,
+    scheduler::Scheduler,
     storage::StorageManager,
 };
 
@@ -62,6 +63,13 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("启动资源监控器...");
     tokio::spawn(async move {
         ResourceMonitor::new(enabled).start().await;
+    });
+
+    // 启动定时任务调度器
+    tracing::info!("启动定时任务调度器...");
+    let scheduler = std::sync::Arc::new(Scheduler::new(storage.clone()));
+    tokio::spawn(async move {
+        scheduler.run().await;
     });
 
     // 启动 API 服务器

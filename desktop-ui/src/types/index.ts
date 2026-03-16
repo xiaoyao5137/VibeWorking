@@ -69,4 +69,44 @@ export interface ActionResult {
   action_id:   string
 }
 
-export type WindowMode = 'buddy' | 'rag' | 'knowledge' | 'models' | 'settings' | 'debug'
+export type WindowMode = 'buddy' | 'rag' | 'knowledge' | 'models' | 'settings' | 'debug' | 'tasks'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 定时任务
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ScheduledTask {
+  id:               number
+  name:             string
+  user_instruction: string
+  cron_expression:  string
+  enabled:          boolean
+  template_id:      string | null
+  run_count:        number
+  last_run_at:      number | null
+  last_run_status:  string | null
+  next_run_at:      number | null
+  created_at:       number
+  updated_at:       number
+}
+
+export interface TaskExecution {
+  id:              number
+  task_id:         number
+  started_at:      number
+  completed_at:    number | null
+  status:          'running' | 'success' | 'failed'
+  knowledge_count: number | null
+  token_used:      number | null
+  result_text:     string | null
+  error_message:   string | null
+  latency_ms:      number | null
+}
+
+export interface TaskTemplate {
+  id:               string
+  name:             string
+  cron:             string
+  category:         string
+  user_instruction: string
+}

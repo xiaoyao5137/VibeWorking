@@ -12,6 +12,39 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+MERGE_SYSTEM_PROMPT = """你是一个工作片段提炼助手。以下是用户在一段连续时间内的屏幕采集记录（按时间顺序），它们属于同一个工作片段。
+
+**你的任务**：将这些连续采集提炼为一个完整的工作片段知识条目。
+
+**提炼规则**：
+1. 识别这段时间内用户在做的一件完整的事
+2. 生成概述（50-150字）：描述做了什么、关键进展、结果，使用过去时态
+3. 生成明细（200-500字）：
+   - 保留有追溯价值的具体信息（代码逻辑、会议决策、学到的知识点）
+   - 过滤掉 UI 操作、重复内容、无意义的切换记录
+   - 不要堆砌原始文本，要提炼和归纳
+4. 识别关键实体（人名、项目名、技术词汇）
+5. 判断分类和重要性
+
+**输出格式（JSON）**：
+{
+  "overview": "概述，50-150字，不含换行符",
+  "details": "明细，200-500字，使用空格代替换行符",
+  "entities": ["实体1", "实体2"],
+  "category": "会议|文档|代码|聊天|学习|其他",
+  "importance": 1-5
+}
+
+**重要性评分**：
+- 5分：关键决策、重要会议纪要、核心代码逻辑
+- 4分：项目进展、技术文档、重要沟通
+- 3分：日常工作记录、一般文档
+- 2分：简单操作记录
+- 1分：无关紧要的内容
+
+**注意**：输出必须是有效的 JSON，字符串中的引号要转义，不要包含未转义的换行符。
+"""
+
 SYSTEM_PROMPT = """你是一个专业的工作记录提炼助手。你的任务是从 OCR 识别的屏幕文本中提取有价值的工作信息。
 
 **提炼规则**：
@@ -262,3 +295,121 @@ class KnowledgeExtractorV2:
     ) -> Optional[Dict[str, Any]]:
         """异步版本（调用同步方法）"""
         return self.extract_sync(capture_data, db_conn)
+
+    def extract_merged(
+        self,
+        captures: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        将多条 captures 合并提炼为一个工作片段知识条目。
+
+        Args:
+            captures: 按时间升序排列的 capture 列表
+
+        Returns:
+            提炼后的知识条目，包含 capture_ids/start_time/end_time/duration_minutes
+        """
+        if not captures:
+            return None
+
+        # 单条直接走原有逻辑
+        if len(captures) == 1:
+            result = self.extract_sync(captures[0])
+            if result:
+                result['capture_ids'] = json.dumps([captures[0]['id']])
+                result['start_time'] = captures[0]['ts']
+                result['end_time'] = captures[0]['ts']
+                result['duration_minutes'] = 0
+                result['frag_app_name'] = captures[0].get('app_name')
+                result['frag_win_title'] = captures[0].get('window_title')
+            return result
+
+        try:
+            # 1. 构建合并 prompt：按时间顺序拼接所有 capture 的文本
+            merged_blocks = []
+            for c in captures:
+                text = c.get('ocr_text') or c.get('ax_text') or ''
+                if not text.strip():
+                    continue
+                ts_str = datetime.fromtimestamp(c['ts'] / 1000).strftime('%H:%M:%S')
+                app = c.get('app_name', '')
+                title = c.get('window_title', '')
+                # 每块限制 800 字，避免单条噪声过多
+                block = f"[{ts_str}] {app} - {title}\n{text[:800]}"
+                merged_blocks.append(block)
+
+            if not merged_blocks:
+                return None
+
+            merged_text = "\n\n---\n\n".join(merged_blocks)
+            # 总长度限制 6000 字（约 4000 tokens）
+            if len(merged_text) > 6000:
+                merged_text = merged_text[:6000] + "\n...(已截断)"
+
+            user_prompt = f"以下是一段连续工作片段的采集记录，请提炼：\n\n{merged_text}"
+
+            # 2. 调用 LLM
+            logger.info(f"合并提炼 {len(captures)} 条 captures")
+            response = self.client.chat(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": MERGE_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                format="json",
+                options={"temperature": 0.3, "num_predict": 1024},
+            )
+
+            # 3. 解析结果
+            content = response['message']['content']
+            result = json.loads(content)
+
+            overview = result.get('overview', '')
+            if not overview or overview == 'SKIP':
+                return None
+
+            # 4. 计算片段元数据
+            start_time = captures[0]['ts']
+            end_time = captures[-1]['ts']
+            duration_minutes = int((end_time - start_time) / 60000)
+
+            # 主要应用：出现次数最多的 app_name
+            from collections import Counter
+            app_counter = Counter(
+                c.get('app_name') for c in captures if c.get('app_name')
+            )
+            frag_app_name = app_counter.most_common(1)[0][0] if app_counter else None
+
+            # 主要窗口：最后一条的 win_title（最能代表当前状态）
+            frag_win_title = next(
+                (c.get('window_title') for c in reversed(captures) if c.get('window_title')),
+                None
+            )
+
+            knowledge = {
+                'capture_ids': json.dumps([c['id'] for c in captures]),
+                'overview': overview,
+                'details': result.get('details', ''),
+                'entities': json.dumps(result.get('entities', []), ensure_ascii=False),
+                'category': result.get('category', '其他'),
+                'importance': result.get('importance', 3),
+                'occurrence_count': 1,
+                'start_time': start_time,
+                'end_time': end_time,
+                'duration_minutes': duration_minutes,
+                'frag_app_name': frag_app_name,
+                'frag_win_title': frag_win_title,
+            }
+
+            logger.info(
+                f"合并提炼完成: {len(captures)} captures → 1 knowledge, "
+                f"时长={duration_minutes}分钟, overview={overview[:50]}..."
+            )
+            return knowledge
+
+        except json.JSONDecodeError as e:
+            logger.error(f"合并提炼 JSON 解析失败: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"合并提炼失败: {e}")
+            return None

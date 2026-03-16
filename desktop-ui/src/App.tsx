@@ -13,14 +13,15 @@
  */
 
 import React, { useEffect } from 'react'
-import { useAppStore }   from './store/useAppStore'
-import FloatingBuddy     from './components/FloatingBuddy'
-import RagPanel          from './components/RagPanel'
-import KnowledgePanel    from './components/KnowledgePanel'
-import ModelManager      from './components/ModelManager'
-import ActionConfirm     from './components/ActionConfirm'
-import Settings          from './components/Settings'
-import DebugPanel        from './components/DebugPanel'
+import { useAppStore }        from './store/useAppStore'
+import FloatingBuddy          from './components/FloatingBuddy'
+import RagPanel               from './components/RagPanel'
+import KnowledgePanel         from './components/KnowledgePanel'
+import ModelManager           from './components/ModelManager'
+import ActionConfirm          from './components/ActionConfirm'
+import Settings               from './components/Settings'
+import DebugPanel             from './components/DebugPanel'
+import ScheduledTasksPanel    from './components/ScheduledTasksPanel'
 
 const App: React.FC = () => {
   const { windowMode, setWindowMode } = useAppStore()
@@ -56,6 +57,7 @@ const App: React.FC = () => {
       {windowMode === 'models'    && <ModelManager />}
       {windowMode === 'settings'  && <Settings />}
       {windowMode === 'debug'     && <DebugPanel />}
+      {windowMode === 'tasks'     && <ScheduledTasksPanel />}
 
       {/* 接管确认弹窗（条件渲染） */}
       <ActionConfirm />

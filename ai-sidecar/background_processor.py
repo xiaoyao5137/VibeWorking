@@ -7,11 +7,14 @@
 """
 
 import asyncio
+import json
 import logging
 import sqlite3
 import time
 from pathlib import Path
 from typing import Optional
+
+from knowledge.fragment_grouper import FragmentGrouper
 
 logger = logging.getLogger(__name__)
 
@@ -56,24 +59,110 @@ class BackgroundProcessor:
         return self._knowledge_extractor
 
     def _get_unprocessed_captures(self, conn: sqlite3.Connection, limit: int):
-        """获取未向量化的采集记录"""
+        """获取未处理的采集记录（按时间升序，用于分组）"""
         cursor = conn.cursor()
-
-        # 查找有 OCR 文本但未向量化的记录
+        # knowledge_id IS NULL 表示尚未被合并进任何工作片段
         cursor.execute("""
-            SELECT c.id, c.ts, c.app_name, c.win_title, c.ocr_text
+            SELECT c.id, c.ts, c.app_name, c.win_title, c.ocr_text, c.ax_text
             FROM captures c
-            LEFT JOIN vector_index v ON c.id = v.capture_id
-            WHERE c.ocr_text IS NOT NULL
-              AND c.ocr_text != ''
-              AND v.capture_id IS NULL
-            ORDER BY c.ts DESC
+            WHERE (c.ocr_text IS NOT NULL AND c.ocr_text != '')
+              AND c.knowledge_id IS NULL
+              AND c.is_sensitive = 0
+            ORDER BY c.ts ASC
             LIMIT ?
         """, (limit,))
+        rows = cursor.fetchall()
+        return [
+            {
+                'id': r[0], 'ts': r[1], 'app_name': r[2],
+                'window_title': r[3], 'ocr_text': r[4], 'ax_text': r[5],
+            }
+            for r in rows
+        ]
 
-        return cursor.fetchall()
+    def _get_fragment_grouper(self):
+        """懒加载 FragmentGrouper"""
+        if not hasattr(self, '_fragment_grouper'):
+            from knowledge.fragment_grouper import FragmentGrouper
+            # 复用已有的 embedding model（如果已初始化）
+            embed_model = self._embed_worker.model if self._embed_worker else None
+            self._fragment_grouper = FragmentGrouper(embedding_model=embed_model)
+            logger.info("FragmentGrouper 已初始化")
+        return self._fragment_grouper
 
-    async def _process_vectorization(self, capture_id: int, ocr_text: str):
+    def _save_knowledge(self, conn: sqlite3.Connection, knowledge: dict) -> int:
+        """保存 knowledge 条目，返回新插入的 id"""
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO knowledge_entries
+            (capture_id, summary, overview, details, entities, category, importance,
+             occurrence_count, capture_ids, start_time, end_time, duration_minutes,
+             frag_app_name, frag_win_title)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            # capture_id 用 capture_ids 中的第一个（向后兼容）
+            json.loads(knowledge.get('capture_ids', '[0]'))[0],
+            knowledge.get('overview', ''),   # summary 字段保持向后兼容
+            knowledge.get('overview', ''),
+            knowledge.get('details', ''),
+            knowledge.get('entities', '[]'),
+            knowledge.get('category', '其他'),
+            knowledge.get('importance', 3),
+            knowledge.get('occurrence_count', 1),
+            knowledge.get('capture_ids'),
+            knowledge.get('start_time'),
+            knowledge.get('end_time'),
+            knowledge.get('duration_minutes'),
+            knowledge.get('frag_app_name'),
+            knowledge.get('frag_win_title'),
+        ))
+        conn.commit()
+        return cursor.lastrowid
+
+    def _mark_captures_processed(
+        self, conn: sqlite3.Connection, capture_ids: list[int], knowledge_id: int
+    ):
+        """标记 captures 已被合并进 knowledge"""
+        placeholders = ','.join('?' * len(capture_ids))
+        conn.execute(
+            f"UPDATE captures SET knowledge_id = ? WHERE id IN ({placeholders})",
+            [knowledge_id] + capture_ids,
+        )
+        conn.commit()
+
+    async def _process_capture_group(self, group: list[dict]):
+        """将一组 captures 合并提炼为一个 knowledge 条目"""
+        try:
+            extractor = self._get_knowledge_extractor()
+            knowledge = extractor.extract_merged(captures=group)
+
+            if not knowledge:
+                logger.debug(f"片段无价值，跳过 ({len(group)} 条 captures)")
+                return False
+
+            conn = sqlite3.connect(self.db_path)
+            knowledge_id = self._save_knowledge(conn, knowledge)
+            capture_ids = [c['id'] for c in group]
+            self._mark_captures_processed(conn, capture_ids, knowledge_id)
+            conn.close()
+
+            logger.info(
+                f"✅ 片段提炼完成: {len(group)} captures → knowledge_id={knowledge_id}, "
+                f"时长={knowledge.get('duration_minutes')}分钟"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"片段提炼异常: {e}")
+            return False
+
+    async def _process_vectorization_batch(self, group: list[dict]):
+        """对一组 captures 批量向量化"""
+        for capture in group:
+            ocr_text = capture.get('ocr_text', '')
+            if ocr_text:
+                await self._process_vectorization(capture['id'], ocr_text)
+                await asyncio.sleep(0.1)
         """处理单条记录的向量化"""
         try:
             worker = self._get_embed_worker()
@@ -175,36 +264,44 @@ class BackgroundProcessor:
             return False
 
     async def _process_batch(self):
-        """处理一批未处理的记录"""
+        """处理一批未处理的记录（基于语义分组）"""
         try:
             conn = sqlite3.connect(self.db_path)
-            records = self._get_unprocessed_captures(conn, self.batch_size)
+            captures = self._get_unprocessed_captures(conn, self.batch_size)
             conn.close()
 
-            if not records:
+            if not captures:
                 return 0
 
-            logger.info(f"📦 发现 {len(records)} 条待处理记录")
+            # 数据太少时等待更多积累，避免切断进行中的任务
+            if len(captures) < FragmentGrouper.MIN_GROUP_WAIT:
+                logger.debug(f"captures 数量不足 ({len(captures)})，等待积累")
+                return 0
+
+            logger.info(f"📦 发现 {len(captures)} 条待处理 captures，开始语义分组")
+
+            # 语义分组
+            grouper = self._get_fragment_grouper()
+            groups = grouper.group_captures(captures)
+
+            # 最后一组可能是进行中的任务，暂不处理
+            groups_to_process = groups[:-1] if len(groups) > 1 else []
+
+            if not groups_to_process:
+                logger.debug("所有 captures 可能属于进行中的任务，等待下一轮")
+                return 0
+
+            logger.info(f"分组结果: {len(captures)} captures → {len(groups)} 组，本轮处理 {len(groups_to_process)} 组")
 
             processed = 0
-            for record in records:
-                capture_id, ts, app_name, win_title, ocr_text = record
+            for group in groups_to_process:
+                # 1. 向量化（每条 capture 独立向量化，用于 RAG 检索）
+                await self._process_vectorization_batch(group)
 
-                # 1. 向量化
-                if await self._process_vectorization(capture_id, ocr_text):
+                # 2. 合并提炼为一个 knowledge 片段
+                if await self._process_capture_group(group):
                     processed += 1
 
-                # 2. 知识提炼
-                capture_data = {
-                    'id': capture_id,
-                    'timestamp': ts,
-                    'app_name': app_name,
-                    'window_title': win_title,
-                    'ocr_text': ocr_text
-                }
-                await self._process_knowledge_extraction(capture_data)
-
-                # 避免过载
                 await asyncio.sleep(0.5)
 
             return processed

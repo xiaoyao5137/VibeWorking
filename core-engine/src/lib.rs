@@ -4,4 +4,5 @@ pub mod capture;
 pub mod executor;
 pub mod ipc;
 pub mod monitor;
+pub mod scheduler;
 pub mod storage;

@@ -8,3 +8,4 @@ pub mod knowledge;
 pub mod pii;
 pub mod preferences;
 pub mod query;
+pub mod tasks;

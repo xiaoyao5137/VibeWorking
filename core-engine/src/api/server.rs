@@ -19,6 +19,7 @@ use super::{
         pii::pii_scrub,
         preferences::{list_preferences, update_preference},
         query::rag_query,
+        tasks::{create_task, delete_task, get_task, list_executions, list_tasks, trigger_task, update_task},
     },
     state::AppState,
 };
@@ -46,6 +47,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/knowledge",         get(list_knowledge))
         .route("/api/knowledge/:id/verify", post(verify_knowledge))
         .route("/api/knowledge/:id",     axum::routing::delete(delete_knowledge))
+        // 定时任务
+        .route("/api/tasks",             get(list_tasks).post(create_task))
+        .route("/api/tasks/:id",         get(get_task).put(update_task).delete(delete_task))
+        .route("/api/tasks/:id/executions", get(list_executions))
+        .route("/api/tasks/:id/trigger", post(trigger_task))
         .layer(cors)
         .with_state(state)
 }
