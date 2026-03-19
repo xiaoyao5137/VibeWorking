@@ -371,3 +371,133 @@ class ModelManager:
             "llm": self.config.get('active_llm'),
             "embedding": self.config.get('active_embedding')
         }
+
+    def get_all_status(self) -> Dict[str, dict]:
+        """返回所有模型的运行时状态 {model_id: {status, download_progress, is_active}}"""
+        result = {}
+        active_llm = self.config.get('active_llm')
+        active_emb = self.config.get('active_embedding')
+        downloading = self.config.get('downloading', {})
+
+        for model_id, info in AVAILABLE_MODELS.items():
+            if model_id in downloading:
+                status = 'downloading'
+                progress = downloading[model_id].get('progress', 0)
+            elif self._is_installed(model_id, info):
+                status = 'installed'
+                progress = 100
+            else:
+                status = 'not_installed'
+                progress = 0
+
+            is_active = (model_id == active_llm or model_id == active_emb)
+            if is_active:
+                status = 'active'
+
+            result[model_id] = {
+                'status': status,
+                'download_progress': progress,
+                'is_active': is_active,
+            }
+        return result
+
+    def set_config_field(self, model_id: str, field_key: str, value: str) -> None:
+        """保存模型的某个配置字段（如 api_key、base_url）"""
+        if 'model_configs' not in self.config:
+            self.config['model_configs'] = {}
+        if model_id not in self.config['model_configs']:
+            self.config['model_configs'][model_id] = {}
+        self.config['model_configs'][model_id][field_key] = value
+        # 同时更新 api_keys 以保持向后兼容
+        if field_key == 'api_key':
+            provider = AVAILABLE_MODELS[model_id].provider if model_id in AVAILABLE_MODELS else model_id
+            if 'api_keys' not in self.config:
+                self.config['api_keys'] = {}
+            self.config['api_keys'][provider] = value
+        self._save_config()
+
+    def validate_api_key(self, model_id: str) -> tuple:
+        """
+        验证模型的 API Key 是否有效。
+        Returns: (ok: bool, message: str)
+        """
+        if model_id not in AVAILABLE_MODELS:
+            return False, f"未知模型 {model_id}"
+
+        info = AVAILABLE_MODELS[model_id]
+        cfg = self.config.get('model_configs', {}).get(model_id, {})
+        api_key = cfg.get('api_key') or self.config.get('api_keys', {}).get(info.provider, '')
+
+        if not api_key:
+            return False, "未配置 API Key"
+
+        try:
+            import urllib.request, json as _json
+            provider = info.provider
+
+            if provider == 'openai':
+                base_url = cfg.get('base_url', 'https://api.openai.com/v1')
+                req = urllib.request.Request(
+                    f"{base_url}/models",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                urllib.request.urlopen(req, timeout=5)
+                return True, "API Key 有效"
+
+            elif provider == 'anthropic':
+                req = urllib.request.Request(
+                    "https://api.anthropic.com/v1/messages",
+                    data=_json.dumps({"model": "claude-3-haiku-20240307", "max_tokens": 1,
+                                      "messages": [{"role": "user", "content": "hi"}]}).encode(),
+                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01",
+                             "content-type": "application/json"},
+                    method="POST",
+                )
+                urllib.request.urlopen(req, timeout=5)
+                return True, "API Key 有效"
+
+            elif provider == 'deepseek':
+                req = urllib.request.Request(
+                    "https://api.deepseek.com/models",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                urllib.request.urlopen(req, timeout=5)
+                return True, "API Key 有效"
+
+            elif provider in ('tongyi', 'kimi', 'doubao'):
+                # 这些 provider 暂时只做格式校验
+                if len(api_key) > 10:
+                    return True, "API Key 格式正确（未做在线验证）"
+                return False, "API Key 格式不正确"
+
+            else:
+                return True, "已保存（未做在线验证）"
+
+        except Exception as e:
+            err = str(e)
+            if '401' in err or 'Unauthorized' in err:
+                return False, "API Key 无效或已过期"
+            if '403' in err:
+                return False, "API Key 权限不足"
+            return False, f"验证失败: {err}"
+
+    def _is_installed(self, model_id: str, info) -> bool:
+        """检查模型是否已安装"""
+        if info.provider == 'ollama':
+            try:
+                import urllib.request
+                resp = urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
+                data = __import__('json').loads(resp.read())
+                installed = [m['name'].split(':')[0] for m in data.get('models', [])]
+                return model_id.replace('-', '.') in installed or model_id in installed
+            except Exception:
+                return False
+        elif info.provider == 'huggingface':
+            hf_dir = Path.home() / '.cache' / 'huggingface' / 'hub'
+            return any(hf_dir.glob(f"*{model_id}*"))
+        elif info.requires_api_key:
+            # 商业模型：有 api_key 配置即视为"已安装"
+            cfg = self.config.get('model_configs', {}).get(model_id, {})
+            return bool(cfg.get('api_key') or
+                        self.config.get('api_keys', {}).get(info.provider, ''))
+        return False

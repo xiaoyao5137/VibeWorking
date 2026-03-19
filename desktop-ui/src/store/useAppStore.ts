@@ -1,13 +1,3 @@
-/**
- * useAppStore — 全局应用状态（Zustand）
- *
- * 管理：
- * - 当前显示的窗口模式（buddy / rag / settings）
- * - RAG Panel 查询与响应状态
- * - 待执行动作（Action Confirm 弹窗）
- * - 应用配置
- */
-
 import { create } from 'zustand'
 import type { ActionCommand, RagContext, WindowMode } from '../types'
 
@@ -30,31 +20,42 @@ export interface AppState {
   apiBaseUrl:     string
   sidecarVersion: string
 
+  // ── 首次引导 ─────────────────────────────────────────────────────────────────
+  hasCompletedSetup: boolean
+  setupSkipped:      boolean
+
   // ── 操作方法 ─────────────────────────────────────────────────────────────────
-  setWindowMode:    (mode: WindowMode) => void
-  setRagQuery:      (q: string) => void
-  setRagResult:     (answer: string, contexts: RagContext[]) => void
-  setRagLoading:    (loading: boolean) => void
-  setRagError:      (err: string | null) => void
-  setPendingAction: (action: ActionCommand | null) => void
-  confirmAction:    () => void
-  cancelAction:     () => void
-  setApiBaseUrl:    (url: string) => void
-  setSidecarVersion:(v: string) => void
-  reset:            () => void
+  setWindowMode:         (mode: WindowMode) => void
+  setRagQuery:           (q: string) => void
+  setRagResult:          (answer: string, contexts: RagContext[]) => void
+  setRagLoading:         (loading: boolean) => void
+  setRagError:           (err: string | null) => void
+  setPendingAction:      (action: ActionCommand | null) => void
+  confirmAction:         () => void
+  cancelAction:          () => void
+  setApiBaseUrl:         (url: string) => void
+  setSidecarVersion:     (v: string) => void
+  setHasCompletedSetup:  (v: boolean) => void
+  setSetupSkipped:       (v: boolean) => void
+  reset:                 () => void
 }
 
+const SETUP_KEY = 'workbuddy_setup_done'
+const SKIP_KEY  = 'workbuddy_setup_skipped'
+
 const initialState = {
-  windowMode:       'rag'  as WindowMode,  // 默认打开 RAG 问答页面
-  ragQuery:         '',
-  ragAnswer:        '',
-  ragContexts:      [] as RagContext[],
-  ragLoading:       false,
-  ragError:         null,
-  pendingAction:    null,
-  actionConfirmed:  false,
-  apiBaseUrl:       'http://localhost:7070',
-  sidecarVersion:   '0.1.0',
+  windowMode:          'rag' as WindowMode,
+  ragQuery:            '',
+  ragAnswer:           '',
+  ragContexts:         [] as RagContext[],
+  ragLoading:          false,
+  ragError:            null,
+  pendingAction:       null,
+  actionConfirmed:     false,
+  apiBaseUrl:          'http://localhost:7070',
+  sidecarVersion:      '0.1.0',
+  hasCompletedSetup:   localStorage.getItem(SETUP_KEY) === 'true',
+  setupSkipped:        localStorage.getItem(SKIP_KEY)  === 'true',
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -90,6 +91,16 @@ export const useAppStore = create<AppState>((set) => ({
   setApiBaseUrl:     (url) => set({ apiBaseUrl: url }),
 
   setSidecarVersion: (v) => set({ sidecarVersion: v }),
+
+  setHasCompletedSetup: (v) => {
+    localStorage.setItem(SETUP_KEY, String(v))
+    set({ hasCompletedSetup: v })
+  },
+
+  setSetupSkipped: (v) => {
+    localStorage.setItem(SKIP_KEY, String(v))
+    set({ setupSkipped: v })
+  },
 
   reset: () => set(initialState),
 }))

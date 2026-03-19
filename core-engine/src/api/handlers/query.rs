@@ -33,7 +33,7 @@ pub struct RagQueryResponse {
 
 /// RAG 查询实现：调用 ai-sidecar 的 RAG 服务
 pub async fn rag_query(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(body): Json<RagQueryRequest>,
 ) -> Result<Json<RagQueryResponse>, ApiError> {
     let query = body.query.clone();
@@ -81,13 +81,7 @@ async fn fallback_keyword_search(
     top_k: usize,
     state: Arc<AppState>,
 ) -> Result<Json<RagQueryResponse>, ApiError> {
-    let storage = state.storage.clone();
-
-    tokio::task::spawn_blocking(move || {
-        let conn = storage.conn.lock().map_err(|e| {
-            ApiError::Internal(format!("获取数据库连接失败: {}", e))
-        })?;
-
+    let result = state.storage.with_conn_async(move |conn| {
         let mut contexts = Vec::new();
         let search_pattern = format!("%{}%", query);
 
@@ -187,12 +181,12 @@ async fn fallback_keyword_search(
             )
         };
 
-        Ok::<_, ApiError>(Json(RagQueryResponse {
+        Ok::<_, crate::storage::StorageError>(RagQueryResponse {
             answer,
             contexts,
             model: "keyword-fallback".to_string(),
-        }))
-    })
-    .await
-    .map_err(|e| ApiError::Internal(format!("任务执行失败: {}", e)))?
+        })
+    }).await?;
+
+    Ok(Json(result))
 }

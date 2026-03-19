@@ -1,617 +1,431 @@
-/**
- * ModelManager v2 - 模型管理面板（优化版）
- *
- * 改进：
- * 1. 使用 SVG 图标替代 Emoji
- * 2. 统一界面尺寸和样式
- * 3. 修复模型数据显示问题
- * 4. 遵循设计规范
- */
-
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
+import type { ModelEntry, ModelCategory } from '../types'
 import { useAppStore } from '../store/useAppStore'
-import './ModelManager.v2.css'
 
-interface Model {
-  id: string
-  name: string
-  type: 'llm' | 'embedding'
-  provider: string
-  model_id: string
-  size_gb: number
-  description: string
-  status: 'not_installed' | 'downloading' | 'installed' | 'active'
-  is_active: boolean
-  is_default: boolean
-  requires_api_key: boolean
+const SIDECAR = 'http://localhost:7071'
+
+const PROVIDER_LABEL: Record<string, string> = {
+  ollama: 'Ollama', huggingface: 'HuggingFace',
+  openai: 'OpenAI', anthropic: 'Anthropic',
+  tongyi: '通义千问', doubao: '豆包', deepseek: 'DeepSeek', kimi: 'Kimi',
+}
+const PROVIDER_COLOR: Record<string, string> = {
+  ollama: '#007AFF', huggingface: '#FF9500',
+  openai: '#34C759', anthropic: '#AF52DE',
+  tongyi: '#FF6B35', doubao: '#1677FF', deepseek: '#06B6D4', kimi: '#8B5CF6',
+}
+const CATEGORY_LABEL: Record<string, string> = {
+  llm: 'LLM', embedding: '向量模型', ocr: 'OCR', asr: '语音识别', vlm: '视觉模型',
+}
+const STATUS_COLOR: Record<string, string> = {
+  not_installed: '#AEAEB2', downloading: '#FF9500',
+  installed: '#34C759', active: '#007AFF', error: '#FF3B30',
+}
+const STATUS_LABEL: Record<string, string> = {
+  not_installed: '未安装', downloading: '下载中',
+  installed: '已安装', active: '使用中', error: '错误',
 }
 
-const ModelManager: React.FC = () => {
-  const { apiBaseUrl, setWindowMode } = useAppStore()
-  const [models, setModels] = useState<Model[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [selectedTab, setSelectedTab] = useState<'llm' | 'embedding'>('llm')
-  const [showApiKeyDialog, setShowApiKeyDialog] = useState(false)
-  const [apiKey, setApiKey] = useState('')
-  const [selectedProvider, setSelectedProvider] = useState('')
+// ── API Key 配置弹窗 ──────────────────────────────────────────────────────────
+const ApiKeyDialog: React.FC<{
+  model: ModelEntry
+  onClose: () => void
+  onSaved: () => void
+}> = ({ model, onClose, onSaved }) => {
+  const [values, setValues] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+  const [validating, setValidating] = useState(false)
+  const [error, setError] = useState('')
+  const [validMsg, setValidMsg] = useState('')
+  const fields = model.api_key_fields || []
 
-  // 获取模型列表
-  const fetchModels = async () => {
-    setLoading(true)
-    setError(null)
+  const handleSave = async () => {
+    const missing = fields.filter(f => f.required && !values[f.key])
+    if (missing.length) { setError(`请填写：${missing.map(f => f.label).join('、')}`); return }
+    setSaving(true); setError('')
     try {
-      // 尝试从 AI Sidecar 获取模型信息
-      const response = await fetch(`${apiBaseUrl}/api/models`)
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-      const data = await response.json()
-
-      if (data.status === 'ok' && data.models) {
-        setModels(data.models)
-      } else {
-        // 如果没有模型数据，使用模拟数据
-        setModels(getMockModels())
-      }
-    } catch (err) {
-      console.error('获取模型列表失败:', err)
-      // 静默失败，使用模拟数据，不显示错误提示
-      setModels(getMockModels())
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // 模拟数据（用于演示）
-  const getMockModels = (): Model[] => {
-    return [
-      {
-        id: 'qwen2.5-3b',
-        name: 'Qwen2.5-3B-INT8',
-        type: 'llm',
-        provider: 'ollama',
-        model_id: 'qwen2.5:3b-instruct-q8_0',
-        size_gb: 2.5,
-        description: '轻量级对话模型，适合日常问答',
-        status: 'installed',
-        is_active: true,
-        is_default: true,
-        requires_api_key: false,
-      },
-      {
-        id: 'qwen2.5-7b',
-        name: 'Qwen2.5-7B-INT4',
-        type: 'llm',
-        provider: 'ollama',
-        model_id: 'qwen2.5:7b-instruct-q4_0',
-        size_gb: 4.5,
-        description: '中等规模对话模型，平衡性能与质量',
-        status: 'not_installed',
-        is_active: false,
-        is_default: false,
-        requires_api_key: false,
-      },
-      {
-        id: 'bge-m3',
-        name: 'BGE-M3-INT8',
-        type: 'embedding',
-        provider: 'local',
-        model_id: 'BAAI/bge-m3',
-        size_gb: 0.65,
-        description: '多语言向量模型，支持中英文',
-        status: 'installed',
-        is_active: true,
-        is_default: true,
-        requires_api_key: false,
-      },
-      {
-        id: 'openai-gpt4',
-        name: 'GPT-4',
-        type: 'llm',
-        provider: 'openai',
-        model_id: 'gpt-4',
-        size_gb: 0,
-        description: 'OpenAI 最强大的模型（需要 API Key）',
-        status: 'not_installed',
-        is_active: false,
-        is_default: false,
-        requires_api_key: true,
-      },
-    ]
-  }
-
-  // 下载模型
-  const downloadModel = async (modelId: string) => {
-    const model = models.find((m) => m.id === modelId)
-    if (!model) return
-
-    // 如果需要 API Key，先弹出对话框
-    if (model.requires_api_key) {
-      setSelectedProvider(model.provider)
-      setShowApiKeyDialog(true)
-      return
-    }
-
-    try {
-      // 更新状态为下载中
-      setModels((prev) =>
-        prev.map((m) =>
-          m.id === modelId ? { ...m, status: 'downloading' as const } : m
-        )
-      )
-
-      const response = await fetch(`${apiBaseUrl}/api/models/${modelId}/download`, {
-        method: 'POST',
+      const r = await fetch(`${SIDECAR}/api/models/${model.id}/configure`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: values }),
       })
-      const data = await response.json()
-
-      if (data.status === 'ok') {
-        alert(`模型 ${model.name} 下载成功！`)
-        await fetchModels()
-      } else {
-        alert(`下载失败: ${data.message}`)
-        await fetchModels()
-      }
-    } catch (error) {
-      console.error('下载模型失败:', error)
-      alert('下载失败，请查看日志')
-      await fetchModels()
-    }
+      const d = await r.json()
+      if (d.status !== 'ok') throw new Error(d.message)
+      onSaved(); onClose()
+    } catch (e: any) { setError(e.message) } finally { setSaving(false) }
   }
 
-  // 激活模型
-  const activateModel = async (modelId: string) => {
+  const handleValidate = async () => {
+    setValidating(true); setValidMsg(''); setError('')
     try {
-      const response = await fetch(`${apiBaseUrl}/api/models/${modelId}/activate`, {
-        method: 'POST',
+      await fetch(`${SIDECAR}/api/models/${model.id}/configure`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: values }),
       })
-      const data = await response.json()
-
-      if (data.status === 'ok') {
-        alert('模型已激活！')
-        await fetchModels()
-      } else {
-        alert(`激活失败: ${data.message}`)
-      }
-    } catch (error) {
-      console.error('激活模型失败:', error)
-      alert('激活失败，请查看日志')
-    }
+      const r = await fetch(`${SIDECAR}/api/models/${model.id}/validate`, { method: 'POST' })
+      const d = await r.json()
+      if (d.valid) setValidMsg('✓ ' + d.message)
+      else setError(d.message)
+    } catch (e: any) { setError(e.message) } finally { setValidating(false) }
   }
-
-  // 删除模型
-  const deleteModel = async (modelId: string) => {
-    if (!window.confirm('确定要删除这个模型吗？')) return
-
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/models/${modelId}/delete`, {
-        method: 'DELETE',
-      })
-      const data = await response.json()
-
-      if (data.status === 'ok') {
-        alert('模型已删除')
-        await fetchModels()
-      } else {
-        alert(`删除失败: ${data.message}`)
-      }
-    } catch (error) {
-      console.error('删除模型失败:', error)
-      alert('删除失败，请查看日志')
-    }
-  }
-
-  // 设置 API Key
-  const handleSetApiKey = async () => {
-    if (!apiKey.trim()) {
-      alert('请输入 API Key')
-      return
-    }
-
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/models/config/api-key`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: selectedProvider,
-          api_key: apiKey,
-        }),
-      })
-      const data = await response.json()
-
-      if (data.status === 'ok') {
-        alert('API Key 已设置')
-        setShowApiKeyDialog(false)
-        setApiKey('')
-        await fetchModels()
-      } else {
-        alert(`设置失败: ${data.message}`)
-      }
-    } catch (error) {
-      console.error('设置 API Key 失败:', error)
-      alert('设置失败，请查看日志')
-    }
-  }
-
-  // 获取状态标签
-  const getStatusLabel = (status: string): string => {
-    const labels: Record<string, string> = {
-      not_installed: '未安装',
-      downloading: '下载中...',
-      installed: '已安装',
-      active: '使用中',
-    }
-    return labels[status] || status
-  }
-
-  // 筛选模型
-  const filteredModels = models.filter((m) => m.type === selectedTab)
-
-  useEffect(() => {
-    fetchModels()
-  }, [])
-
-  const handleClose = () => setWindowMode('buddy')
 
   return (
-    <div className="model-manager-v2">
-      {/* 标题栏 */}
-      <div className="model-manager-v2__header">
-        <div className="model-manager-v2__title-group">
-          {/* CPU 图标 */}
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect width="16" height="16" x="4" y="4" rx="2" />
-            <rect width="6" height="6" x="9" y="9" rx="1" />
-            <path d="M15 2v2" />
-            <path d="M15 20v2" />
-            <path d="M2 15h2" />
-            <path d="M2 9h2" />
-            <path d="M20 15h2" />
-            <path d="M20 9h2" />
-            <path d="M9 2v2" />
-            <path d="M9 20v2" />
-          </svg>
-          <h1 className="model-manager-v2__title">模型管理</h1>
-        </div>
-
-        <div className="model-manager-v2__actions">
-          <button
-            onClick={fetchModels}
-            disabled={loading}
-            className="model-manager-v2__btn model-manager-v2__btn--secondary"
-          >
-            {/* 刷新图标 */}
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className={loading ? 'rotating' : ''}
-            >
-              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-            </svg>
-            刷新
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+    }}>
+      <div style={{ background: 'white', borderRadius: 16, padding: 24, width: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>配置 {model.name}</div>
+        <div style={{ fontSize: 12, color: '#6E6E73', marginBottom: 18 }}>{model.description}</div>
+        {fields.map(f => (
+          <div key={f.key} style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: '#6E6E73', display: 'block', marginBottom: 4 }}>
+              {f.label}{f.required && <span style={{ color: '#FF3B30' }}> *</span>}
+            </label>
+            <input
+              type={f.secret ? 'password' : 'text'}
+              placeholder={f.placeholder}
+              value={values[f.key] || ''}
+              onChange={e => setValues(v => ({ ...v, [f.key]: e.target.value }))}
+              style={{
+                width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 13,
+                border: '1px solid rgba(0,0,0,0.15)', outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+        ))}
+        {error && <div style={{ fontSize: 12, color: '#FF3B30', marginBottom: 10 }}>{error}</div>}
+        {validMsg && <div style={{ fontSize: 12, color: '#34C759', marginBottom: 10 }}>{validMsg}</div>}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', marginTop: 4 }}>
+          <button onClick={handleValidate} disabled={validating} style={btn('#F2F2F7', '#333', 12)}>
+            {validating ? '验证中...' : '验证 Key'}
           </button>
-
-          <button
-            onClick={handleClose}
-            className="model-manager-v2__btn model-manager-v2__btn--close"
-          >
-            {/* X 图标 */}
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
-            </svg>
-            关闭
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onClose} style={btn('#F2F2F7', '#333')}>取消</button>
+            <button onClick={handleSave} disabled={saving} style={btn('#007AFF', 'white')}>
+              {saving ? '保存中...' : '保存'}
+            </button>
+          </div>
         </div>
       </div>
+    </div>
+  )
+}
 
-      <div className="model-manager-v2__content">
-        {/* 标签页 */}
-        <div className="model-manager-v2__tabs">
-          <button
-            className={`model-manager-v2__tab ${
-              selectedTab === 'llm' ? 'model-manager-v2__tab--active' : ''
-            }`}
-            onClick={() => setSelectedTab('llm')}
-          >
-            {/* 对话图标 */}
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
-            </svg>
-            对话模型
-          </button>
+// ── 模型卡片 ──────────────────────────────────────────────────────────────────
+const ModelCard: React.FC<{
+  model: ModelEntry
+  onDownload: () => void
+  onActivate: () => void
+  onDelete: () => void
+  onConfigure: () => void
+  downloading: boolean
+}> = ({ model, onDownload, onActivate, onDelete, onConfigure, downloading }) => {
+  const isApi = model.requires_api_key
+  const isActive = model.status === 'active'
+  const isInstalled = model.status === 'installed' || isActive
+  const isDownloading = model.status === 'downloading' || downloading
 
-          <button
-            className={`model-manager-v2__tab ${
-              selectedTab === 'embedding' ? 'model-manager-v2__tab--active' : ''
-            }`}
-            onClick={() => setSelectedTab('embedding')}
-          >
-            {/* 向量图标 */}
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 2v20" />
-              <path d="M2 12h20" />
-              <path d="m5 5 14 14" />
-              <path d="m19 5-14 14" />
-            </svg>
-            向量模型
-          </button>
-        </div>
-
-        {/* 错误提示 */}
-        {error && (
-          <div className="model-manager-v2__error">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <path d="m15 9-6 6" />
-              <path d="m9 9 6 6" />
-            </svg>
-            {error}
+  return (
+    <div style={{
+      background: 'white', borderRadius: 12, padding: '12px 14px',
+      border: `1px solid ${isActive ? 'rgba(0,122,255,0.3)' : 'rgba(0,0,0,0.07)'}`,
+      marginBottom: 8,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{model.name}</span>
+            {model.size_gb > 0 && (
+              <span style={{ fontSize: 11, color: '#AEAEB2' }}>{model.size_gb}GB</span>
+            )}
+            <span style={{
+              fontSize: 10, padding: '1px 6px', borderRadius: 4,
+              background: `${PROVIDER_COLOR[model.provider]}18`,
+              color: PROVIDER_COLOR[model.provider],
+            }}>{PROVIDER_LABEL[model.provider] || model.provider}</span>
+            {model.recommended && (
+              <span style={{
+                fontSize: 10, padding: '1px 6px', borderRadius: 4,
+                background: '#34C75918', color: '#34C759', fontWeight: 600,
+              }}>推荐</span>
+            )}
           </div>
+          <div style={{ fontSize: 12, color: '#6E6E73', marginTop: 3 }}>{model.description}</div>
+          {model.tags && model.tags.length > 0 && (
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 5 }}>
+              {model.tags.slice(0, 4).map(t => (
+                <span key={t} style={{
+                  fontSize: 10, padding: '1px 6px', borderRadius: 4,
+                  background: 'rgba(0,0,0,0.05)', color: '#6E6E73',
+                }}>{t}</span>
+              ))}
+            </div>
+          )}
+          {isDownloading && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6E6E73', marginBottom: 3 }}>
+                <span>下载中...</span>
+                <span>{model.download_progress || 0}%</span>
+              </div>
+              <div style={{ height: 4, borderRadius: 2, background: '#E5E5EA' }}>
+                <div style={{
+                  height: '100%', borderRadius: 2, background: '#FF9500',
+                  width: `${model.download_progress || 0}%`, transition: 'width 0.3s',
+                }} />
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flexShrink: 0, alignItems: 'flex-end' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: STATUS_COLOR[model.status] || '#AEAEB2' }} />
+            <span style={{ fontSize: 11, color: STATUS_COLOR[model.status] || '#AEAEB2' }}>
+              {STATUS_LABEL[model.status] || model.status}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 5 }}>
+            {isApi && (
+              <button onClick={onConfigure} style={btn('#F2F2F7', '#333', 11)}>
+                {isInstalled ? '重新配置' : '配置 Key'}
+              </button>
+            )}
+            {!isApi && !isInstalled && !isDownloading && (
+              <button onClick={onDownload} style={btn('#007AFF', 'white', 11)}>下载</button>
+            )}
+            {isInstalled && !isActive && (
+              <button onClick={onActivate} style={btn('#34C759', 'white', 11)}>激活</button>
+            )}
+            {isActive && (
+              <span style={{ fontSize: 11, color: '#007AFF', fontWeight: 600 }}>使用中</span>
+            )}
+            {isInstalled && !isActive && (
+              <button onClick={onDelete} style={btn('#FF3B3018', '#FF3B30', 11)}>删除</button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── 主组件 ────────────────────────────────────────────────────────────────────
+type TabType = 'local' | 'quantized' | 'api'
+
+const ModelManager: React.FC = () => {
+  const { setWindowMode } = useAppStore()
+  const [tab, setTab] = useState<TabType>('local')
+  const [models, setModels] = useState<ModelEntry[]>([])
+  const [loading, setLoading] = useState(false)
+  const [configuringModel, setConfiguringModel] = useState<ModelEntry | null>(null)
+  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set())
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const loadModels = async () => {
+    setLoading(true)
+    try {
+      const r = await fetch(`${SIDECAR}/api/models`)
+      const d = await r.json()
+      if (d.status === 'ok') setModels(d.models)
+    } catch { } finally { setLoading(false) }
+  }
+
+  useEffect(() => { loadModels() }, [])
+
+  // 轮询下载进度
+  useEffect(() => {
+    if (downloadingIds.size === 0) {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+      return
+    }
+    pollRef.current = setInterval(async () => {
+      const updates: Record<string, Partial<ModelEntry>> = {}
+      let anyDone = false
+      for (const id of downloadingIds) {
+        try {
+          const r = await fetch(`${SIDECAR}/api/models/${id}/status`)
+          const d = await r.json()
+          updates[id] = { status: d.status, download_progress: d.download_progress }
+          if (d.status === 'installed' || d.status === 'active') anyDone = true
+        } catch { }
+      }
+      setModels(prev => prev.map(m => updates[m.id] ? { ...m, ...updates[m.id] } : m))
+      if (anyDone) {
+        setDownloadingIds(prev => {
+          const next = new Set(prev)
+          for (const [id, u] of Object.entries(updates)) {
+            if (u.status === 'installed' || u.status === 'active') next.delete(id)
+          }
+          return next
+        })
+      }
+    }, 3000)
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [downloadingIds])
+
+  const handleDownload = async (model: ModelEntry) => {
+    try {
+      await fetch(`${SIDECAR}/api/models/${model.id}/download`, { method: 'POST' })
+      setDownloadingIds(prev => new Set(prev).add(model.id))
+      setModels(prev => prev.map(m => m.id === model.id ? { ...m, status: 'downloading', download_progress: 0 } : m))
+    } catch { }
+  }
+
+  const handleActivate = async (model: ModelEntry) => {
+    try {
+      await fetch(`${SIDECAR}/api/models/${model.id}/activate`, { method: 'POST' })
+      await loadModels()
+    } catch { }
+  }
+
+  const handleDelete = async (model: ModelEntry) => {
+    try {
+      await fetch(`${SIDECAR}/api/models/${model.id}/delete`, { method: 'DELETE' })
+      await loadModels()
+    } catch { }
+  }
+
+  // 按 tab 过滤
+  const filtered = models.filter(m => {
+    if (tab === 'local') return m.provider === 'ollama'
+    if (tab === 'quantized') return m.provider === 'huggingface'
+    if (tab === 'api') return !['ollama', 'huggingface'].includes(m.provider)
+    return true
+  })
+
+  // 按 category 分组
+  const grouped = filtered.reduce<Record<string, ModelEntry[]>>((acc, m) => {
+    const key = m.category
+    if (!acc[key]) acc[key] = []
+    acc[key].push(m)
+    return acc
+  }, {})
+
+  // 商业 API 按 provider 分组
+  const byProvider = filtered.reduce<Record<string, ModelEntry[]>>((acc, m) => {
+    if (!acc[m.provider]) acc[m.provider] = []
+    acc[m.provider].push(m)
+    return acc
+  }, {})
+
+  // 当前激活模型
+  const activeLlm = models.find(m => m.status === 'active' && m.category === 'llm')
+  const activeEmb = models.find(m => m.status === 'active' && m.category === 'embedding')
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#F5F5F7' }}>
+
+      {/* 顶部激活状态 */}
+      <div style={{ padding: '10px 14px 0', display: 'flex', gap: 8 }}>
+        {[
+          { label: 'LLM', model: activeLlm },
+          { label: 'Embedding', model: activeEmb },
+        ].map(({ label, model }) => (
+          <div key={label} style={{
+            flex: 1, background: 'white', borderRadius: 10, padding: '8px 12px',
+            border: '1px solid rgba(0,0,0,0.07)',
+          }}>
+            <div style={{ fontSize: 10, color: '#AEAEB2', marginBottom: 2 }}>{label}</div>
+            {model ? (
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#007AFF' }}>{model.name}</div>
+            ) : (
+              <div style={{ fontSize: 12, color: '#FF9500' }}>未配置</div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Tab 切换 */}
+      <div style={{ display: 'flex', gap: 4, padding: '10px 14px 0' }}>
+        {([
+          { key: 'local', label: '本地模型' },
+          { key: 'quantized', label: '量化模型' },
+          { key: 'api', label: '商业 API' },
+        ] as { key: TabType; label: string }[]).map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)} style={{
+            fontSize: 12, padding: '5px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
+            background: tab === t.key ? '#007AFF' : 'white',
+            color: tab === t.key ? 'white' : '#6E6E73',
+            fontWeight: tab === t.key ? 600 : 400,
+          }}>{t.label}</button>
+        ))}
+        <button onClick={loadModels} style={{
+          marginLeft: 'auto', fontSize: 11, padding: '5px 10px', borderRadius: 8,
+          border: '1px solid rgba(0,0,0,0.1)', background: 'white', color: '#6E6E73', cursor: 'pointer',
+        }}>刷新</button>
+      </div>
+
+      {/* 内容区 */}
+      <div style={{ flex: 1, overflow: 'auto', padding: '10px 14px 14px' }}>
+        {loading && models.length === 0 && (
+          <div style={{ textAlign: 'center', color: '#AEAEB2', fontSize: 13, padding: 40 }}>加载中...</div>
         )}
 
-        {/* 模型列表 */}
-        {loading ? (
-          <div className="model-manager-v2__loading">加载中...</div>
-        ) : filteredModels.length === 0 ? (
-          <div className="model-manager-v2__empty">
-            <svg
-              width="48"
-              height="48"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect width="18" height="18" x="3" y="3" rx="2" />
-              <path d="M9 9h.01" />
-              <path d="M15 9h.01" />
-              <path d="M9 15h6" />
-            </svg>
-            <p>暂无{selectedTab === 'llm' ? '对话' : '向量'}模型</p>
-          </div>
-        ) : (
-          <div className="model-manager-v2__list">
-            {filteredModels.map((model) => (
-              <div key={model.id} className="model-manager-v2__card">
-                <div className="model-manager-v2__card-header">
-                  <div className="model-manager-v2__card-info">
-                    <h3 className="model-manager-v2__card-name">{model.name}</h3>
-                    <p className="model-manager-v2__card-desc">{model.description}</p>
-                  </div>
-
-                  <div
-                    className={`model-manager-v2__status model-manager-v2__status--${model.status}`}
-                  >
-                    {getStatusLabel(model.status)}
-                  </div>
-                </div>
-
-                <div className="model-manager-v2__card-meta">
-                  <span className="model-manager-v2__meta-item">
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                    </svg>
-                    {model.provider}
-                  </span>
-
-                  {model.size_gb > 0 && (
-                    <span className="model-manager-v2__meta-item">
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="7 10 12 15 17 10" />
-                        <line x1="12" x2="12" y1="15" y2="3" />
-                      </svg>
-                      {model.size_gb.toFixed(1)} GB
-                    </span>
-                  )}
-
-                  {model.is_default && (
-                    <span className="model-manager-v2__badge">默认</span>
-                  )}
-                </div>
-
-                <div className="model-manager-v2__card-actions">
-                  {model.status === 'not_installed' && (
-                    <button
-                      onClick={() => downloadModel(model.id)}
-                      className="model-manager-v2__btn model-manager-v2__btn--primary"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="7 10 12 15 17 10" />
-                        <line x1="12" x2="12" y1="15" y2="3" />
-                      </svg>
-                      {model.requires_api_key ? '配置' : '下载'}
-                    </button>
-                  )}
-
-                  {model.status === 'installed' && !model.is_active && (
-                    <button
-                      onClick={() => activateModel(model.id)}
-                      className="model-manager-v2__btn model-manager-v2__btn--primary"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <polygon points="5 3 19 12 5 21 5 3" />
-                      </svg>
-                      激活
-                    </button>
-                  )}
-
-                  {model.status === 'active' && (
-                    <span className="model-manager-v2__active-badge">
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                      使用中
-                    </span>
-                  )}
-
-                  {(model.status === 'installed' || model.status === 'active') &&
-                    !model.is_default && (
-                      <button
-                        onClick={() => deleteModel(model.id)}
-                        className="model-manager-v2__btn model-manager-v2__btn--danger"
-                      >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M3 6h18" />
-                          <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                          <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                        </svg>
-                        删除
-                      </button>
-                    )}
-                </div>
-              </div>
+        {tab !== 'api' && Object.entries(grouped).map(([category, items]) => (
+          <div key={category} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6E6E73', marginBottom: 6, textTransform: 'uppercase' }}>
+              {CATEGORY_LABEL[category] || category}
+            </div>
+            {items.map(m => (
+              <ModelCard
+                key={m.id} model={m}
+                downloading={downloadingIds.has(m.id)}
+                onDownload={() => handleDownload(m)}
+                onActivate={() => handleActivate(m)}
+                onDelete={() => handleDelete(m)}
+                onConfigure={() => setConfiguringModel(m)}
+              />
             ))}
           </div>
+        ))}
+
+        {tab === 'api' && Object.entries(byProvider).map(([provider, items]) => (
+          <div key={provider} style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: PROVIDER_COLOR[provider] || '#AEAEB2',
+              }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#333' }}>
+                {PROVIDER_LABEL[provider] || provider}
+              </span>
+            </div>
+            {items.map(m => (
+              <ModelCard
+                key={m.id} model={m}
+                downloading={false}
+                onDownload={() => {}}
+                onActivate={() => handleActivate(m)}
+                onDelete={() => {}}
+                onConfigure={() => setConfiguringModel(m)}
+              />
+            ))}
+          </div>
+        ))}
+
+        {!loading && filtered.length === 0 && (
+          <div style={{ textAlign: 'center', color: '#AEAEB2', fontSize: 13, padding: 40 }}>
+            {tab === 'quantized' ? '暂无量化模型' : '暂无模型'}
+          </div>
         )}
       </div>
 
-      {/* API Key 对话框 */}
-      {showApiKeyDialog && (
-        <div className="model-manager-v2__dialog-overlay">
-          <div className="model-manager-v2__dialog">
-            <h3 className="model-manager-v2__dialog-title">
-              设置 {selectedProvider} API Key
-            </h3>
-            <input
-              type="password"
-              className="model-manager-v2__dialog-input"
-              placeholder="请输入 API Key"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-            <div className="model-manager-v2__dialog-actions">
-              <button
-                onClick={() => {
-                  setShowApiKeyDialog(false)
-                  setApiKey('')
-                }}
-                className="model-manager-v2__btn model-manager-v2__btn--secondary"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleSetApiKey}
-                className="model-manager-v2__btn model-manager-v2__btn--primary"
-              >
-                确定
-              </button>
-            </div>
-          </div>
-        </div>
+      {configuringModel && (
+        <ApiKeyDialog
+          model={configuringModel}
+          onClose={() => setConfiguringModel(null)}
+          onSaved={loadModels}
+        />
       )}
     </div>
   )
+}
+
+function btn(bg: string, color: string, fontSize = 13): React.CSSProperties {
+  return {
+    background: bg, color, fontSize, fontWeight: 500,
+    padding: fontSize <= 11 ? '4px 10px' : '7px 16px',
+    borderRadius: 8, border: 'none', cursor: 'pointer',
+  }
 }
 
 export default ModelManager

@@ -146,8 +146,56 @@ export interface TaskTemplate {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 系统资源监控
+// 模型管理
 // ─────────────────────────────────────────────────────────────────────────────
+
+export type ModelProvider =
+  | 'ollama' | 'huggingface'
+  | 'openai' | 'anthropic'
+  | 'tongyi' | 'doubao' | 'deepseek' | 'kimi'
+
+export type ModelCategory = 'llm' | 'embedding' | 'ocr' | 'asr' | 'vlm'
+export type ModelStatus = 'not_installed' | 'downloading' | 'installed' | 'active' | 'error'
+
+export interface ApiKeyField {
+  key:         string
+  label:       string
+  placeholder: string
+  required:    boolean
+  secret:      boolean
+}
+
+export interface ModelEntry {
+  id:               string
+  name:             string
+  category:         ModelCategory
+  provider:         ModelProvider
+  size_gb:          number
+  description:      string
+  status:           ModelStatus
+  download_progress?: number
+  is_active:        boolean
+  is_default:       boolean
+  requires_api_key: boolean
+  api_key_fields?:  ApiKeyField[]
+  recommended?:     boolean
+  recommend_reason?: string
+  tags?:            string[]
+}
+
+export interface HardwareInfo {
+  memory_gb:      number
+  cpu_cores:      number
+  disk_free_gb:   number
+  has_gpu:        boolean
+  gpu_memory_gb?: number
+}
+
+export interface ActiveModels {
+  llm?:       ModelEntry
+  embedding?: ModelEntry
+}
+
 
 export interface SystemResources {
   cpu_trend:    { ts: number; value: number }[]
