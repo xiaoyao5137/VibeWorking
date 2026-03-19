@@ -58,72 +58,80 @@ pub async fn list_knowledge(
     State(state): State<Arc<AppState>>,
     Query(params): Query<KnowledgeQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let storage = state.storage.clone();
+    let result = state.storage.with_conn_async(move |conn| {
+        // 参数化查询，避免 SQL 注入
+        let (entries, total) = if let Some(ref category) = params.category {
+            let mut stmt = conn.prepare(
+                "SELECT id, capture_id, summary, overview, details, entities, category, importance,
+                 occurrence_count, user_verified, user_edited, created_at, updated_at
+                 FROM knowledge_entries WHERE category = ?1
+                 ORDER BY created_at DESC LIMIT ?2 OFFSET ?3"
+            ).map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
 
-    tokio::task::spawn_blocking(move || {
-        let conn = storage.conn.lock().map_err(|e| {
-            ApiError::Internal(format!("获取数据库连接失败: {}", e))
-        })?;
-
-        // 构建查询
-        let mut query = String::from(
-            "SELECT id, capture_id, summary, overview, details, entities, category, importance,
-             occurrence_count, user_verified, user_edited, created_at, updated_at
-             FROM knowledge_entries WHERE 1=1"
-        );
-
-        if let Some(ref category) = params.category {
-            query.push_str(&format!(" AND category = '{}'", category));
-        }
-
-        query.push_str(" ORDER BY created_at DESC");
-        query.push_str(&format!(" LIMIT {} OFFSET {}", params.limit, params.offset));
-
-        // 执行查询
-        let mut stmt = conn.prepare(&query).map_err(|e| {
-            ApiError::Internal(format!("准备查询失败: {}", e))
-        })?;
-
-        let entries = stmt
-            .query_map([], |row| {
-                let entities_json: String = row.get(5).unwrap_or_default();
-                let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
-
-                Ok(KnowledgeEntry {
-                    id: row.get(0)?,
-                    capture_id: row.get(1)?,
-                    summary: row.get(2)?,
-                    overview: row.get(3).ok(),
-                    details: row.get(4).ok(),
-                    entities,
-                    category: row.get(6)?,
-                    importance: row.get(7)?,
-                    occurrence_count: row.get(8).ok(),
-                    user_verified: row.get(9)?,
-                    user_edited: row.get(10)?,
-                    created_at: row.get(11)?,
-                    updated_at: row.get(12)?,
+            let entries = stmt
+                .query_map(rusqlite::params![category, params.limit, params.offset], |row| {
+                    let entities_json: String = row.get(5).unwrap_or_default();
+                    let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
+                    Ok(KnowledgeEntry {
+                        id: row.get(0)?, capture_id: row.get(1)?,
+                        summary: row.get(2)?, overview: row.get(3).ok(),
+                        details: row.get(4).ok(), entities,
+                        category: row.get(6)?, importance: row.get(7)?,
+                        occurrence_count: row.get(8).ok(),
+                        user_verified: row.get(9)?, user_edited: row.get(10)?,
+                        created_at: row.get(11)?, updated_at: row.get(12)?,
+                    })
                 })
-            })
-            .map_err(|e| ApiError::Internal(format!("查询失败: {}", e)))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| ApiError::Internal(format!("解析结果失败: {}", e)))?;
+                .map_err(|e| crate::storage::StorageError::Rusqlite(e))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
 
-        // 获取总数
-        let total_query = if let Some(ref category) = params.category {
-            format!("SELECT COUNT(*) FROM knowledge_entries WHERE category = '{}'", category)
+            let total: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM knowledge_entries WHERE category = ?1",
+                    rusqlite::params![category],
+                    |row| row.get(0),
+                )
+                .map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
+
+            (entries, total)
         } else {
-            "SELECT COUNT(*) FROM knowledge_entries".to_string()
+            let mut stmt = conn.prepare(
+                "SELECT id, capture_id, summary, overview, details, entities, category, importance,
+                 occurrence_count, user_verified, user_edited, created_at, updated_at
+                 FROM knowledge_entries
+                 ORDER BY created_at DESC LIMIT ?1 OFFSET ?2"
+            ).map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
+
+            let entries = stmt
+                .query_map(rusqlite::params![params.limit, params.offset], |row| {
+                    let entities_json: String = row.get(5).unwrap_or_default();
+                    let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
+                    Ok(KnowledgeEntry {
+                        id: row.get(0)?, capture_id: row.get(1)?,
+                        summary: row.get(2)?, overview: row.get(3).ok(),
+                        details: row.get(4).ok(), entities,
+                        category: row.get(6)?, importance: row.get(7)?,
+                        occurrence_count: row.get(8).ok(),
+                        user_verified: row.get(9)?, user_edited: row.get(10)?,
+                        created_at: row.get(11)?, updated_at: row.get(12)?,
+                    })
+                })
+                .map_err(|e| crate::storage::StorageError::Rusqlite(e))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
+
+            let total: i64 = conn
+                .query_row("SELECT COUNT(*) FROM knowledge_entries", [], |row| row.get(0))
+                .map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
+
+            (entries, total)
         };
 
-        let total: i64 = conn
-            .query_row(&total_query, [], |row| row.get(0))
-            .map_err(|e| ApiError::Internal(format!("获取总数失败: {}", e)))?;
+        Ok(KnowledgeListResponse { entries, total })
+    }).await?;
 
-        Ok::<_, ApiError>(Json(KnowledgeListResponse { entries, total }))
-    })
-    .await
-    .map_err(|e| ApiError::Internal(format!("任务执行失败: {}", e)))?
+    Ok(Json(result))
 }
 
 /// POST /api/knowledge/:id/verify - 验证知识条目
@@ -131,23 +139,14 @@ pub async fn verify_knowledge(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let storage = state.storage.clone();
-
-    tokio::task::spawn_blocking(move || {
-        let conn = storage.conn.lock().map_err(|e| {
-            ApiError::Internal(format!("获取数据库连接失败: {}", e))
-        })?;
-
+    state.storage.with_conn_async(move |conn| {
         conn.execute(
             "UPDATE knowledge_entries SET user_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             [id],
-        )
-        .map_err(|e| ApiError::Internal(format!("更新失败: {}", e)))?;
-
-        Ok::<_, ApiError>(StatusCode::OK)
-    })
-    .await
-    .map_err(|e| ApiError::Internal(format!("任务执行失败: {}", e)))?
+        ).map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
+        Ok(())
+    }).await?;
+    Ok(StatusCode::OK)
 }
 
 /// DELETE /api/knowledge/:id - 删除知识条目
@@ -155,18 +154,10 @@ pub async fn delete_knowledge(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let storage = state.storage.clone();
-
-    tokio::task::spawn_blocking(move || {
-        let conn = storage.conn.lock().map_err(|e| {
-            ApiError::Internal(format!("获取数据库连接失败: {}", e))
-        })?;
-
+    state.storage.with_conn_async(move |conn| {
         conn.execute("DELETE FROM knowledge_entries WHERE id = ?", [id])
-            .map_err(|e| ApiError::Internal(format!("删除失败: {}", e)))?;
-
-        Ok::<_, ApiError>(StatusCode::OK)
-    })
-    .await
-    .map_err(|e| ApiError::Internal(format!("任务执行失败: {}", e)))?
+            .map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
+        Ok(())
+    }).await?;
+    Ok(StatusCode::OK)
 }

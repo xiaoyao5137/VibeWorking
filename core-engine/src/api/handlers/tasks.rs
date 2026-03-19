@@ -110,10 +110,11 @@ pub async fn trigger_task(
     TaskRepo::get(&state.storage, id)?.ok_or(ApiError::NotFound("task".into()))?;
 
     // 异步触发（不等待结果）
+    let sidecar_url = state.sidecar_url.clone();
     tokio::spawn(async move {
         let client = reqwest::Client::new();
         let _ = client
-            .post("http://127.0.0.1:7071/tasks/execute")
+            .post(format!("{}/tasks/execute", sidecar_url))
             .json(&serde_json::json!({ "task_id": id }))
             .timeout(std::time::Duration::from_secs(300))
             .send()

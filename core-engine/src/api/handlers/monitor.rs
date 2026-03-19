@@ -279,7 +279,9 @@ pub async fn monitor_overview(
                     id:            r.get(0)?,
                     ts:            r.get(1)?,
                     query:         r.get::<_, String>(2).map(|q| {
-                        if q.len() > 60 { format!("{}...", &q[..60]) } else { q }
+                        if q.chars().count() > 60 {
+                            format!("{}...", q.chars().take(60).collect::<String>())
+                        } else { q }
                     })?,
                     latency_ms:    r.get(3)?,
                     context_count: r.get(4).unwrap_or(0),

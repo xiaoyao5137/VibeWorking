@@ -39,9 +39,9 @@ pub async fn rag_query(
     let query = body.query.clone();
     let top_k = body.top_k;
 
-    // 调用 ai-sidecar 的 RAG 服务（端口 7071）
+    // 调用 ai-sidecar 的 RAG 服务
     let client = reqwest::Client::new();
-    let rag_service_url = "http://127.0.0.1:7071/query";
+    let rag_service_url = format!("{}/query", state.sidecar_url);
 
     let request_body = serde_json::json!({
         "query": query,
@@ -49,7 +49,7 @@ pub async fn rag_query(
     });
 
     match client
-        .post(rag_service_url)
+        .post(&rag_service_url)
         .json(&request_body)
         .timeout(std::time::Duration::from_secs(120))  // 增加超时到 120 秒
         .send()

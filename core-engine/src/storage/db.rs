@@ -192,6 +192,6 @@ impl StorageManager {
 pub fn current_ts_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("time went backwards")
+        .unwrap_or_default()
         .as_millis() as i64
 }
