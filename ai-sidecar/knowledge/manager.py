@@ -23,7 +23,7 @@ class KnowledgeManager:
             db_path: SQLite 数据库路径
         """
         if db_path is None:
-            db_path = str(Path.home() / ".workbuddy" / "workbuddy.db")
+            db_path = str(Path.home() / ".memory-bread" / "memory-bread.db")
 
         self.db_path = db_path
         logger.info(f"初始化知识库管理器，数据库: {db_path}")
@@ -40,9 +40,12 @@ class KnowledgeManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 capture_id INTEGER NOT NULL,
                 summary TEXT NOT NULL,
+                overview TEXT,
+                details TEXT,
                 entities TEXT,
                 category TEXT,
                 importance INTEGER DEFAULT 3,
+                occurrence_count INTEGER DEFAULT 1,
                 user_verified BOOLEAN DEFAULT 0,
                 user_edited BOOLEAN DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

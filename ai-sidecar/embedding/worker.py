@@ -11,8 +11,8 @@ import asyncio
 import logging
 import time
 
-from workbuddy_ipc         import IpcRequest, IpcResponse
-from workbuddy_ipc.message import EmbedResult
+from memory_bread_ipc         import IpcRequest, IpcResponse
+from memory_bread_ipc.message import EmbedResult
 
 from .model import EmbeddingModel
 

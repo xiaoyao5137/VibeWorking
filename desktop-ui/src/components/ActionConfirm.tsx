@@ -81,7 +81,7 @@ const ActionConfirm: React.FC<ActionConfirmProps> = ({
       <div className="action-confirm-dialog" data-testid="action-confirm-dialog">
         {/* 标题 */}
         <h2 className="action-confirm__title" data-testid="action-confirm-title">
-          🤖 工作搭子需要接管操控
+          🤖 记忆面包需要接管操控
         </h2>
 
         {/* 动作描述 */}

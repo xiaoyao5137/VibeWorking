@@ -29,7 +29,10 @@ impl IntoResponse for ApiError {
         let (status, code, message) = match &self {
             ApiError::NotFound(msg)  => (StatusCode::NOT_FOUND,            "NOT_FOUND",       msg.as_str()),
             ApiError::BadRequest(msg)=> (StatusCode::BAD_REQUEST,          "BAD_REQUEST",     msg.as_str()),
-            ApiError::Storage(_)     => (StatusCode::INTERNAL_SERVER_ERROR,"STORAGE_ERROR",   "数据库操作失败"),
+            ApiError::Storage(e)     => {
+                tracing::error!("storage error: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR,"STORAGE_ERROR",   "数据库操作失败")
+            },
             ApiError::Internal(msg)  => (StatusCode::INTERNAL_SERVER_ERROR,"INTERNAL_ERROR",  msg.as_str()),
         };
         (

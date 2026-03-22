@@ -16,9 +16,9 @@ from scheduled_task_executor import TaskExecutor
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="WorkBuddy Task Executor", version="1.0.0")
+app = FastAPI(title="记忆面包 Task Executor", version="1.0.0")
 
-DB_PATH = str(Path.home() / ".workbuddy" / "workbuddy.db")
+DB_PATH = str(Path.home() / ".memory-bread" / "memory-bread.db")
 executor = TaskExecutor(db_path=DB_PATH)
 
 

@@ -19,7 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def main():
-    db_path = str(Path.home() / ".workbuddy" / "workbuddy.db")
+    db_path = str(Path.home() / ".memory-bread" / "memory-bread.db")
 
     logger.info("=" * 60)
     logger.info("开始批量向量化测试")

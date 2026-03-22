@@ -47,7 +47,7 @@ impl Default for CaptureConfig {
     fn default() -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
         Self {
-            captures_dir:       PathBuf::from(home).join(".workbuddy").join("captures"),
+            captures_dir:       PathBuf::from(home).join(".memory-bread").join("captures"),
             screenshot_quality: 80,
             enable_screenshot:  true,
             enable_ax:          true,

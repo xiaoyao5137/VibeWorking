@@ -56,7 +56,7 @@ logs/
 *.pth
 *.onnx
 models/
-~/.workbuddy/models/
+~/.memory-bread/models/
 
 # Temporary
 tmp/

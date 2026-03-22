@@ -20,7 +20,7 @@ from ocr.backends.base import OcrBox, OcrOutput
 from ocr.engine        import OcrEngine
 from ocr.worker        import OcrWorker
 from tests.conftest    import MockOcrBackend
-from workbuddy_ipc     import IpcResponse, ResponseStatus
+from memory_bread_ipc     import IpcResponse, ResponseStatus
 
 
 # ── 辅助 ─────────────────────────────────────────────────────────────────────

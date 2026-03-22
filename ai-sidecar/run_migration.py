@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def run_migration():
     """执行 004 迁移"""
-    db_path = Path.home() / ".workbuddy" / "workbuddy.db"
+    db_path = Path.home() / ".memory-bread" / "memory-bread.db"
     migration_file = Path(__file__).parent / "migrations" / "004_add_overview_details.sql"
 
     if not db_path.exists():

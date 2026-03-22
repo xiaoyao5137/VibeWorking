@@ -19,7 +19,7 @@ import psutil
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = str(Path.home() / ".workbuddy" / "workbuddy.db")
+DB_PATH = str(Path.home() / ".memory-bread" / "memory-bread.db")
 
 
 def _available_mb() -> int:

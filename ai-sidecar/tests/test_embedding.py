@@ -20,7 +20,7 @@ from embedding.base   import EmbeddingBackend, EmbeddingVector
 from embedding.bge    import BgeM3Backend
 from embedding.model  import EmbeddingModel
 from embedding.worker import EmbedWorker
-from workbuddy_ipc    import IpcResponse, ResponseStatus
+from memory_bread_ipc    import IpcResponse, ResponseStatus
 
 
 # ── Mock 后端 ─────────────────────────────────────────────────────────────────
@@ -64,8 +64,8 @@ class MockEmbeddingBackend(EmbeddingBackend):
 
 def _make_embed_request(texts: list[str]):
     import time
-    from workbuddy_ipc import IpcRequest
-    from workbuddy_ipc.message import EmbedRequest
+    from memory_bread_ipc import IpcRequest
+    from memory_bread_ipc.message import EmbedRequest
     task = EmbedRequest(capture_id=1, texts=texts, model="bge-m3")
     return IpcRequest(id=str(uuid.uuid4()), ts=int(time.time() * 1000), task=task)
 

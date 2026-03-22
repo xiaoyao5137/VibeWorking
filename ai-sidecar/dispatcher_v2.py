@@ -23,7 +23,7 @@ import logging
 import time
 import uuid
 
-from workbuddy_ipc import IpcRequest, IpcResponse, PingResult
+from memory_bread_ipc import IpcRequest, IpcResponse, PingResult
 
 from idle_compute import (
     IdleDetector,

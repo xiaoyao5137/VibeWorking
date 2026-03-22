@@ -31,7 +31,7 @@ from vlm.backend  import SceneType, VlmBackend, VlmOutput
 from vlm.minicpm  import MiniCpmVBackend
 from vlm.model    import VlmModel
 from vlm.worker   import VlmWorker
-from workbuddy_ipc import IpcResponse, ResponseStatus
+from memory_bread_ipc import IpcResponse, ResponseStatus
 
 
 # ── Mock 工具 ─────────────────────────────────────────────────────────────────
@@ -103,15 +103,15 @@ class MockVlmBackend(VlmBackend):
 
 
 def _make_asr_request(audio_path: str, language: str | None = None):
-    from workbuddy_ipc import IpcRequest
-    from workbuddy_ipc.message import AsrRequest
+    from memory_bread_ipc import IpcRequest
+    from memory_bread_ipc.message import AsrRequest
     task = AsrRequest(capture_id=1, audio_path=audio_path, language=language)
     return IpcRequest(id=str(uuid.uuid4()), ts=int(time.time() * 1000), task=task)
 
 
 def _make_vlm_request(screenshot_path: str, prompt: str = "请分析这张截图"):
-    from workbuddy_ipc import IpcRequest
-    from workbuddy_ipc.message import VlmRequest
+    from memory_bread_ipc import IpcRequest
+    from memory_bread_ipc.message import VlmRequest
     task = VlmRequest(capture_id=1, screenshot_path=screenshot_path, prompt=prompt)
     return IpcRequest(id=str(uuid.uuid4()), ts=int(time.time() * 1000), task=task)
 

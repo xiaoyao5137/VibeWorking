@@ -1,4 +1,4 @@
-//! WorkBuddy IPC 协议库
+//! 记忆面包 IPC 协议库
 //!
 //! 供 core-engine 中的所有 Rust crate 引用，定义与 AI Sidecar（Python）
 //! 通信的完整协议类型和传输层工具。
@@ -6,7 +6,7 @@
 //! # 快速示例
 //!
 //! ```rust,no_run
-//! use workbuddy_ipc::{IpcClient, TaskRequest, OcrRequest};
+//! use memory_bread_ipc::{IpcClient, TaskRequest, OcrRequest};
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {

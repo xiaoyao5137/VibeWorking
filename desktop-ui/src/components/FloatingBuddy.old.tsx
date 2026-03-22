@@ -44,7 +44,7 @@ const FloatingBuddy: React.FC<FloatingBuddyProps> = ({ className = '' }) => {
       className={`floating-buddy ${className}`}
       data-testid="floating-buddy"
       role="button"
-      aria-label="工作搭子"
+      aria-label="记忆面包"
       tabIndex={0}
       onClick={handleClick}
       onKeyDown={(e) => e.key === 'Enter' && handleClick()}

@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import time
 
-from workbuddy_ipc import IpcRequest, IpcResponse, PingResult
+from memory_bread_ipc import IpcRequest, IpcResponse, PingResult
 
 logger = logging.getLogger(__name__)
 

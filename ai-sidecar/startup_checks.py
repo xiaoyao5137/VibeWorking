@@ -71,7 +71,7 @@ def run_startup_checks() -> bool:
         True 如果所有检查通过，False 否则
     """
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print("🔍 WorkBuddy 启动前置检查")
+    print("🔍 记忆面包启动前置检查")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print()
 
@@ -123,7 +123,7 @@ def run_startup_checks() -> bool:
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     if all_passed:
-        print("✅ 所有检查通过，可以启动 WorkBuddy")
+        print("✅ 所有检查通过，可以启动记忆面包")
     else:
         print("❌ 部分检查未通过，请先完成上述配置")
         print()
@@ -131,7 +131,7 @@ def run_startup_checks() -> bool:
         print("   1. 安装 Ollama: brew install ollama")
         print("   2. 启动 Ollama: ollama serve &")
         print("   3. 下载模型: ollama pull qwen2.5:3b")
-        print("   4. 重新启动 WorkBuddy")
+        print("   4. 重新启动记忆面包")
 
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print()

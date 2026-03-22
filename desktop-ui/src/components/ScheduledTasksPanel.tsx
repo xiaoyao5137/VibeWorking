@@ -32,7 +32,15 @@ const API = 'http://localhost:7070'
 
 function formatTs(ms: number | null): string {
   if (!ms) return '—'
-  return new Date(ms).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return new Date(ms).toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
 }
 
 function cronHint(expr: string): string {
@@ -393,6 +401,13 @@ const inputStyle: React.CSSProperties = {
   width: '100%', padding: '8px 10px', borderRadius: 8, fontSize: 13,
   border: '1px solid rgba(0,0,0,0.15)', outline: 'none', boxSizing: 'border-box',
   fontFamily: 'inherit',
+}
+
+function btnStyle(bg: string): React.CSSProperties {
+  return {
+    background: bg, color: 'white', border: 'none', borderRadius: 6,
+    padding: '5px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center',
+  }
 }
 
 export default ScheduledTasksPanel

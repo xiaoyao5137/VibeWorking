@@ -46,7 +46,7 @@ pub async fn get_task(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let task = TaskRepo::get(&state.storage, id)?.ok_or(ApiError::not_found("task"))?;
+    let task = TaskRepo::get(&state.storage, id)?.ok_or(ApiError::NotFound("task".into()))?;
     Ok(Json(task))
 }
 

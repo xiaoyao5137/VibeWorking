@@ -19,7 +19,7 @@ from .retriever import Fts5Retriever, KnowledgeFts5Retriever, RetrievedChunk, Ve
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SYSTEM_PROMPT = (
-    "你是工作搭子，一个本地运行的 AI 工作助手。"
+    "你是记忆面包，一个本地运行的 AI 工作助手。"
     "根据以下工作记录上下文，简洁、准确地回答用户的问题。"
     "如果上下文中没有相关信息，请直接说明。"
 )
@@ -49,8 +49,8 @@ class RagPipeline:
         embedding_model:     EmbeddingModel,
         vector_retriever:    VectorRetriever,
         fts5_retriever:      Fts5Retriever,
-        knowledge_retriever: KnowledgeFts5Retriever,
         llm:                 LlmBackend,
+        knowledge_retriever: KnowledgeFts5Retriever | None = None,
         top_k:               int = 5,
         system_prompt:       str = _DEFAULT_SYSTEM_PROMPT,
     ) -> None:
@@ -85,7 +85,7 @@ class RagPipeline:
 
         # ② 并行检索（FTS5 关键词 + 知识库 + 向量语义）
         fts5_results      = self._fts5.search(user_query, top_k=self._top_k * 2)
-        knowledge_results = self._knowledge.search(user_query, top_k=self._top_k * 2)
+        knowledge_results = self._knowledge.search(user_query, top_k=self._top_k * 2) if self._knowledge else []
         vector_results    = (
             self._vector.search(query_vector, top_k=self._top_k * 2)
             if query_vector else []

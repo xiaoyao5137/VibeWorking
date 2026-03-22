@@ -22,8 +22,8 @@ class RetrievedChunk:
     """检索到的文本片段"""
     capture_id: int
     text: str
-    score: float
-    source: str  # "vector" / "fts5" / "knowledge"
+    score: float = 0.0
+    source: str = "unknown"  # "vector" / "fts5" / "knowledge"
     metadata: dict = None  # 额外元数据
 
     def __post_init__(self):
@@ -36,7 +36,7 @@ class VectorRetriever:
 
     def __init__(
         self,
-        collection: str = "workbuddy_captures",
+        collection: str = "memory_bread_captures",
         host: Optional[str] = None,
         port: Optional[int] = None,
         qdrant_path: Optional[str] = None,
@@ -64,6 +64,10 @@ class VectorRetriever:
                 self._client = None
         return self._client
     
+    def is_available(self) -> bool:
+        """检查 Qdrant 是否可用"""
+        return self._get_client() is not None
+
     def search(
         self,
         query_vector: list[float],

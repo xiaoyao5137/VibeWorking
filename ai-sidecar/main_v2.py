@@ -21,7 +21,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('/tmp/workbuddy-sidecar.log')
+        logging.FileHandler('/tmp/memory-bread-sidecar.log')
     ]
 )
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 class SidecarServer:
     """AI Sidecar 服务器"""
 
-    def __init__(self, socket_path: str = "/tmp/workbuddy-sidecar.sock"):
+    def __init__(self, socket_path: str = "/tmp/memory-bread-sidecar.sock"):
         self.socket_path = socket_path
         self.dispatcher = Dispatcher()
         self.server = None
@@ -39,7 +39,7 @@ class SidecarServer:
     async def start(self) -> None:
         """启动服务器"""
         logger.info("=" * 60)
-        logger.info("WorkBuddy AI Sidecar 启动中...")
+        logger.info("记忆面包 AI Sidecar 启动中...")
         logger.info("=" * 60)
 
         # 1. 初始化 Dispatcher（包含闲时计算系统）
@@ -100,7 +100,7 @@ class SidecarServer:
             request_json = request_bytes.decode('utf-8')
 
             # 解析请求
-            from workbuddy_ipc import IpcRequest
+            from memory_bread_ipc import IpcRequest
             request = IpcRequest.from_json(request_json)
 
             logger.debug("收到请求: id=%s type=%s", request.id, request.task.type)

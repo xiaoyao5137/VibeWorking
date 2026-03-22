@@ -84,7 +84,7 @@ def nonexistent_path(tmp_path) -> str:
 @pytest.fixture
 def make_ocr_request():
     """工厂 Fixture：创建 OcrRequest 包装的 IpcRequest"""
-    from workbuddy_ipc import IpcRequest, OcrRequest
+    from memory_bread_ipc import IpcRequest, OcrRequest
     import time
 
     def _factory(screenshot_path: str = "/tmp/test.jpg", capture_id: int = 1):
@@ -97,8 +97,8 @@ def make_ocr_request():
 @pytest.fixture
 def make_ping_request():
     """工厂 Fixture：创建 PingRequest 包装的 IpcRequest"""
-    # PingRequest 在 workbuddy_ipc.message 中定义，但未在 __init__.py 中导出
-    from workbuddy_ipc.message import IpcRequest, PingRequest
+    # PingRequest 在 memory_bread_ipc.message 中定义，但未在 __init__.py 中导出
+    from memory_bread_ipc.message import IpcRequest, PingRequest
     import time
 
     def _factory():

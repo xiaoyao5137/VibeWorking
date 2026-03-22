@@ -25,7 +25,7 @@ if __name__ == "__main__":
     from debug_ui import app
 
     print("=" * 60)
-    print("WorkBuddy 闲时计算调试界面")
+    print("记忆面包闲时计算调试界面")
     print("=" * 60)
     print("启动中...")
     print()

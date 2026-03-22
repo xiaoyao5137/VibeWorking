@@ -7,6 +7,8 @@ use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use crate::api::{error::ApiError, state::AppState};
 
+const FALLBACK_NOISE_OVERVIEW_PREFIX: &str = "低价值工作片段（";
+
 #[derive(Deserialize)]
 pub struct RagQueryRequest {
     pub query: String,
@@ -64,13 +66,13 @@ pub async fn rag_query(
             } else {
                 // RAG 服务返回错误，降级为简单的关键词搜索
                 tracing::warn!("RAG 服务返回错误，降级为关键词搜索");
-                fallback_keyword_search(query, top_k, _state).await
+                fallback_keyword_search(query, top_k, state).await
             }
         }
         Err(e) => {
             // 无法连接到 RAG 服务，降级为简单的关键词搜索
             tracing::warn!("无法连接到 RAG 服务: {}，降级为关键词搜索", e);
-            fallback_keyword_search(query, top_k, _state).await
+            fallback_keyword_search(query, top_k, state).await
         }
     }
 }
@@ -88,13 +90,20 @@ async fn fallback_keyword_search(
         // 从知识库检索
         let knowledge_query = "SELECT id, capture_id, overview, details, summary
              FROM knowledge_entries
-             WHERE overview LIKE ? OR details LIKE ? OR summary LIKE ?
+             WHERE (overview LIKE ? OR details LIKE ? OR summary LIKE ?)
+               AND summary NOT LIKE ?
              ORDER BY created_at DESC
              LIMIT ?";
 
         if let Ok(mut stmt) = conn.prepare(knowledge_query) {
             if let Ok(rows) = stmt.query_map(
-                [&search_pattern, &search_pattern, &search_pattern, &top_k.to_string()],
+                [
+                    &search_pattern,
+                    &search_pattern,
+                    &search_pattern,
+                    &format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX),
+                    &top_k.to_string(),
+                ],
                 |row| {
                     let overview: Option<String> = row.get(2).ok();
                     let details: Option<String> = row.get(3).ok();

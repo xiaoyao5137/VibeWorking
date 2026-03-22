@@ -40,8 +40,8 @@ export interface AppState {
   reset:                 () => void
 }
 
-const SETUP_KEY = 'workbuddy_setup_done'
-const SKIP_KEY  = 'workbuddy_setup_skipped'
+const SETUP_KEY = 'memory-bread_setup_done'
+const SKIP_KEY  = 'memory-bread_setup_skipped'
 
 const initialState = {
   windowMode:          'rag' as WindowMode,

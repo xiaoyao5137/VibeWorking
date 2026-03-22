@@ -1,4 +1,4 @@
-# WorkBuddy OCR 方案实施报告
+# 记忆面包 OCR 方案实施报告
 
 ## 执行时间
 2026-03-05 01:00 - 02:01（约 1 小时）
@@ -184,7 +184,7 @@ observations = request.results()
 - ✅ **无系统死机风险**
 - ✅ **代码更简洁可维护**
 
-WorkBuddy 的 OCR 功能现在已经可以投入实际使用。下一步需要在 Core Engine 中实现 IPC 集成，让采集流程自动调用 OCR。
+记忆面包 的 OCR 功能现在已经可以投入实际使用。下一步需要在 Core Engine 中实现 IPC 集成，让采集流程自动调用 OCR。
 
 ---
 

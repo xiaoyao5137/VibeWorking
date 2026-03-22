@@ -145,7 +145,7 @@ class ModelManager:
 
     def __init__(self, config_path: Optional[Path] = None):
         if config_path is None:
-            config_path = Path.home() / ".workbuddy" / "model_config.json"
+            config_path = Path.home() / ".memory-bread" / "model_config.json"
 
         self.config_path = config_path
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,7 +161,7 @@ class ModelManager:
 
         # 默认配置
         return {
-            "active_llm": "qwen3.5-4b",
+            "active_llm": "qwen2.5-3b",
             "active_embedding": "bge-m3",
             "api_keys": {}
         }
@@ -481,6 +481,19 @@ class ModelManager:
                 return False, "API Key 权限不足"
             return False, f"验证失败: {err}"
 
+    def _ollama_names_for_model(self, model_id: str) -> list[str]:
+        if model_id.startswith('qwen2.5-'):
+            return [model_id.replace('qwen2.5-', 'qwen2.5:')]
+        if model_id.startswith('qwen3.5-'):
+            return [model_id.replace('qwen3.5-', 'qwen3.5:')]
+        if model_id.startswith('llama3.2-'):
+            return [model_id.replace('llama3.2-', 'llama3.2:')]
+        if model_id.startswith('gemma2-'):
+            return [model_id.replace('gemma2-', 'gemma2:')]
+        if model_id.startswith('deepseek-r1-'):
+            return [model_id.replace('deepseek-r1-', 'deepseek-r1:')]
+        return [model_id]
+
     def _is_installed(self, model_id: str, info) -> bool:
         """检查模型是否已安装"""
         if info.provider == 'ollama':
@@ -488,8 +501,9 @@ class ModelManager:
                 import urllib.request
                 resp = urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
                 data = __import__('json').loads(resp.read())
-                installed = [m['name'].split(':')[0] for m in data.get('models', [])]
-                return model_id.replace('-', '.') in installed or model_id in installed
+                installed = {m['name'] for m in data.get('models', [])}
+                aliases = self._ollama_names_for_model(model_id)
+                return any(alias == name or name.startswith(f"{alias}:") for alias in aliases for name in installed)
             except Exception:
                 return False
         elif info.provider == 'huggingface':

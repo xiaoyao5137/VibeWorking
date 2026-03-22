@@ -308,8 +308,8 @@ const ModelManager: React.FC = () => {
   }, {})
 
   // 当前激活模型
-  const activeLlm = models.find(m => m.status === 'active' && m.category === 'llm')
-  const activeEmb = models.find(m => m.status === 'active' && m.category === 'embedding')
+  const activeLlm = models.find(m => (m.status === 'active' || m.is_active) && m.category === 'llm')
+  const activeEmb = models.find(m => (m.status === 'active' || m.is_active) && m.category === 'embedding')
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#F5F5F7' }}>

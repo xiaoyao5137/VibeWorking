@@ -1,12 +1,12 @@
 [package]
-name = "workbuddy-desktop"
+name = "memory-bread-desktop"
 version = "0.1.0"
-description = "WorkBuddy Desktop Application"
-authors = ["WorkBuddy Team"]
+description = "记忆面包 Desktop Application"
+authors = ["记忆面包 Team"]
 edition = "2021"
 
 [lib]
-name = "workbuddy_desktop_lib"
+name = "memory_bread_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

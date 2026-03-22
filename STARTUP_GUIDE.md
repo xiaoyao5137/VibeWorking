@@ -1,4 +1,4 @@
-# WorkBuddy 启动指南
+# 记忆面包 启动指南
 
 ## ✅ 系统状态
 
@@ -81,7 +81,7 @@ curl http://localhost:7070/api/vector/status
 
 ## 📝 日志位置
 
-所有日志文件存储在：`~/.workbuddy/logs/`
+所有日志文件存储在：`~/.memory-bread/logs/`
 
 - `sidecar.log` - AI Sidecar 日志
 - `core.log` - Core Engine 日志

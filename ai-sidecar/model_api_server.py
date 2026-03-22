@@ -44,6 +44,10 @@ def list_models():
 
         # 获取运行时状态
         runtime = model_manager.get_all_status()
+        if runtime.get('qwen2.5-3b', {}).get('status') in ('installed', 'active') and model_manager.config.get('active_llm') not in runtime:
+            model_manager.config['active_llm'] = 'qwen2.5-3b'
+            model_manager._save_config()
+            runtime = model_manager.get_all_status()
         # 获取推荐列表
         hw = _get_hardware()
         rec = get_recommendations(
@@ -92,6 +96,10 @@ def get_active_models():
         active_llm_id  = model_manager.config.get('active_llm')
         active_emb_id  = model_manager.config.get('active_embedding')
         runtime        = model_manager.get_all_status()
+        if runtime.get('qwen2.5-3b', {}).get('status') in ('installed', 'active') and not active_llm_id:
+            active_llm_id = 'qwen2.5-3b'
+            model_manager.config['active_llm'] = active_llm_id
+            model_manager._save_config()
 
         def _build(model_id):
             if not model_id:

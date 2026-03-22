@@ -42,7 +42,7 @@
 ## 🎯 如何使用调试面板
 
 1. **打开应用**
-   - WorkBuddy 窗口应该已经打开
+   - 记忆面包 窗口应该已经打开
    - 如果没有，运行: `./start.sh`
 
 2. **进入调试面板**
@@ -106,12 +106,12 @@ curl http://localhost:7070/api/vector/status
 
 2. **检查数据库**
    ```bash
-   sqlite3 ~/.workbuddy/workbuddy.db "SELECT COUNT(*) FROM captures;"
+   sqlite3 ~/.memory-bread/memory-bread.db "SELECT COUNT(*) FROM captures;"
    ```
 
 3. **查看日志**
    ```bash
-   tail -f ~/.workbuddy/logs/core.log
+   tail -f ~/.memory-bread/logs/core.log
    ```
 
 ### 如果数据不更新
@@ -129,7 +129,7 @@ curl http://localhost:7070/api/vector/status
 - ✅ 自动刷新功能正常
 - ✅ 所有 API 端点响应正常
 
-现在您可以在 WorkBuddy 应用中打开调试面板，查看实时的系统数据了！
+现在您可以在 记忆面包 应用中打开调试面板，查看实时的系统数据了！
 
 ---
 

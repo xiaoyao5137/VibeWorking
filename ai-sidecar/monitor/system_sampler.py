@@ -17,7 +17,7 @@ import psutil
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = str(Path.home() / ".workbuddy" / "workbuddy.db")
+DB_PATH = str(Path.home() / ".memory-bread" / "memory-bread.db")
 
 # 进程自身的 psutil 对象
 _PROCESS = psutil.Process(os.getpid())

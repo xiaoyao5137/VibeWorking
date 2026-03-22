@@ -23,7 +23,7 @@ def test_knowledge_manager():
     print("=" * 70)
 
     # 使用临时数据库
-    test_db = "/tmp/test_workbuddy.db"
+    test_db = "/tmp/test_memory_bread.db"
     if os.path.exists(test_db):
         os.remove(test_db)
         print(f"✅ 清理旧测试数据库")

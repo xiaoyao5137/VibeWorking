@@ -1,4 +1,4 @@
-# WorkBuddy LLM 模型分析与优化方案
+# 记忆面包 LLM 模型分析与优化方案
 
 ## 你的问题非常关键！
 
@@ -68,7 +68,7 @@ class OllamaBackend(LlmBackend):
 
 **架构**:
 ```
-WorkBuddy RAG
+记忆面包 RAG
     ↓ HTTP
 Ollama 服务 (localhost:11434)
     ↓
@@ -81,7 +81,7 @@ Qwen2.5 7B 模型（独立进程）
 
 根据文件系统:
 ```bash
-~/.workbuddy/models/Qwen/Qwen2.5-3B-Instruct-GGUF
+~/.memory-bread/models/Qwen/Qwen2.5-3B-Instruct-GGUF
 ```
 
 **说明**: 实际部署时使用了 **3B 版本**而非 7B
@@ -148,7 +148,7 @@ Qwen2.5 7B 模型（独立进程）
 #### 1. **独立进程，内存隔离**
 
 ```
-WorkBuddy AI Sidecar (Python)
+记忆面包 AI Sidecar (Python)
     ↓ HTTP
 Ollama 服务（独立进程）
     ↓

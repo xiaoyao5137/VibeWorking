@@ -69,7 +69,7 @@ pub async fn start_server(
 ) -> anyhow::Result<()> {
     let app      = create_router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    info!("WorkBuddy API 服务已启动，监听地址: http://{addr}");
+    info!("记忆面包 API 服务已启动，监听地址: http://{addr}");
     axum::serve(listener, app).await?;
     Ok(())
 }

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "WorkBuddy",
+  "productName": "记忆面包",
   "version": "0.1.0",
-  "identifier": "com.workbuddy.app",
+  "identifier": "com.memory-bread.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "WorkBuddy",
+        "title": "记忆面包",
         "width": 800,
         "height": 900,
         "minWidth": 600,

@@ -1,10 +1,10 @@
-//! WorkBuddy Core Engine — 二进制入口
+//! 记忆面包 Core Engine — 二进制入口
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use workbuddy_core::{
+use memory_bread_core::{
     api::{server::start_server, state::AppState},
     capture::{start_listener, CaptureConfig, CaptureEngine, ListenerConfig},
     monitor::ResourceMonitor,
@@ -20,13 +20,13 @@ async fn main() -> anyhow::Result<()> {
         .with_level(true)
         .init();
 
-    tracing::info!("WorkBuddy Core Engine 启动中...");
+    tracing::info!("记忆面包 Core Engine 启动中...");
 
     // 数据库路径
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let db_path = PathBuf::from(home)
-        .join(".workbuddy")
-        .join("workbuddy.db");
+        .join(".memory-bread")
+        .join("memory-bread.db");
 
     // 初始化存储
     tracing::info!("初始化数据库: {}", db_path.display());
@@ -35,6 +35,8 @@ async fn main() -> anyhow::Result<()> {
     // 创建应用状态
     let state = Arc::new(AppState {
         storage: storage.clone(),
+        sidecar_url: std::env::var("SIDECAR_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:8001".to_string()),
     });
 
     // 启动采集引擎
@@ -52,7 +54,14 @@ async fn main() -> anyhow::Result<()> {
 
     // 启动事件监听器
     tracing::info!("启动事件监听器...");
-    let listener_config = ListenerConfig::default();
+    let interval_secs = storage
+        .get_preference("privacy.capture_interval_sec")
+        .ok()
+        .flatten()
+        .and_then(|p| p.value.parse::<u64>().ok())
+        .unwrap_or(2);
+    let mut listener_config = ListenerConfig::default();
+    listener_config.interval_secs = interval_secs;
     let enabled = listener_config.enabled.clone();
 
     tokio::spawn(async move {
@@ -61,8 +70,9 @@ async fn main() -> anyhow::Result<()> {
 
     // 启动资源监控器
     tracing::info!("启动资源监控器...");
+    let monitor_storage = storage.clone();
     tokio::spawn(async move {
-        ResourceMonitor::new(enabled).start().await;
+        ResourceMonitor::new(enabled, monitor_storage).start().await;
     });
 
     // 启动定时任务调度器

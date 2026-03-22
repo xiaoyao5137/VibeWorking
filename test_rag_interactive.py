@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WorkBuddy RAG 交互式测试脚本
+记忆面包 RAG 交互式测试脚本
 """
 import requests
 import json
@@ -64,7 +64,7 @@ def query_rag(question, top_k=5):
 
 def main():
     print("=" * 60)
-    print("WorkBuddy RAG 功能测试")
+    print("记忆面包 RAG 功能测试")
     print("=" * 60)
 
     # 检查服务

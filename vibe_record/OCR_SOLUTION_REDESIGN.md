@@ -1,4 +1,4 @@
-# WorkBuddy OCR 方案重新设计
+# 记忆面包 OCR 方案重新设计
 
 ## 当前问题总结
 
@@ -158,13 +158,13 @@ print(String(data: output, encoding: .utf8)!)
 EOF
 
 # 编译
-swiftc -O -o workbuddy-ocr main.swift \
+swiftc -O -o memory-bread-ocr main.swift \
     -framework Foundation \
     -framework Vision \
     -framework AppKit
 
 # 测试
-./workbuddy-ocr /path/to/test.jpg
+./memory-bread-ocr /path/to/test.jpg
 ```
 
 ### 步骤 2：修改 AppleVisionBackend

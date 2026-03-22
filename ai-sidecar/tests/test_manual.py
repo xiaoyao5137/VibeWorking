@@ -17,11 +17,11 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 def main():
     print("=" * 70)
-    print("WorkBuddy 知识提炼功能手动测试")
+    print("记忆面包知识提炼功能手动测试")
     print("=" * 70)
 
-    # 使用 WorkBuddy 数据库
-    db_path = str(Path.home() / ".workbuddy" / "workbuddy.db")
+    # 使用记忆面包数据库
+    db_path = str(Path.home() / ".memory-bread" / "memory-bread.db")
     print(f"\n数据库路径: {db_path}")
 
     if not os.path.exists(db_path):
@@ -38,8 +38,8 @@ def main():
     test_knowledge = [
         {
             'capture_id': 1001,
-            'summary': 'WorkBuddy 知识提炼功能开发完成，使用 Qwen3.5-4B 模型',
-            'entities': json.dumps(['WorkBuddy', 'Qwen3.5', '知识提炼'], ensure_ascii=False),
+            'summary': '记忆面包知识提炼功能开发完成，使用 Qwen3.5-4B 模型',
+            'entities': json.dumps(['记忆面包', 'Qwen3.5', '知识提炼'], ensure_ascii=False),
             'category': '代码',
             'importance': 5,
         },
@@ -97,7 +97,7 @@ def main():
     print("搜索测试")
     print("=" * 70)
 
-    search_queries = ['WorkBuddy', 'Qwen', '知识库']
+    search_queries = ['记忆面包', 'Qwen', '知识库']
     for query in search_queries:
         results = manager.search_entries(query, limit=5)
         print(f"\n搜索 '{query}' 找到 {len(results)} 条结果:")
@@ -108,7 +108,7 @@ def main():
     print("✅ 测试完成！")
     print("=" * 70)
     print(f"\n现在可以在 Desktop UI 中查看知识库:")
-    print("1. 打开 WorkBuddy 应用窗口")
+    print("1. 打开记忆面包应用窗口")
     print("2. 点击悬浮按钮上的 📚 图标")
     print("3. 查看提炼的知识条目")
     print("\n或访问: http://localhost:1420/")

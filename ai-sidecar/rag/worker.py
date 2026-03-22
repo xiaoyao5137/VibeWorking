@@ -7,7 +7,7 @@ RAG Worker - 处理 RAG 查询任务
 
 import logging
 import time
-from workbuddy_ipc import IpcRequest, IpcResponse
+from memory_bread_ipc import IpcRequest, IpcResponse
 
 logger = logging.getLogger(__name__)
 

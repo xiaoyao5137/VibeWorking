@@ -1,4 +1,4 @@
-# WorkBuddy OCR 集成验证报告
+# 记忆面包 OCR 集成验证报告
 
 ## 验证时间
 2026-03-05 02:08
@@ -211,7 +211,7 @@ handler.performRequests_error_([request], None)
 
 ## 总结
 
-WorkBuddy 的 OCR 集成已经完全实现并验证通过。系统能够：
+记忆面包 的 OCR 集成已经完全实现并验证通过。系统能够：
 
 - ✅ 自动检测 AX 文本是否可用
 - ✅ 在需要时自动调用 OCR

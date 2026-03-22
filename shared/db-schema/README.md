@@ -1,6 +1,6 @@
 # db-schema — 数据库 Schema 组件
 
-WorkBuddy 本地 SQLite 数据库的全量 Schema 定义。
+记忆面包 本地 SQLite 数据库的全量 Schema 定义。
 
 ## 文件结构
 
@@ -46,15 +46,15 @@ shared/db-schema/
 
 ```bash
 # 按顺序依次执行三个迁移文件
-sqlite3 ~/.workbuddy/workbuddy.db < migrations/001_init.sql
-sqlite3 ~/.workbuddy/workbuddy.db < migrations/002_seed_defaults.sql
-sqlite3 ~/.workbuddy/workbuddy.db < migrations/003_views.sql
+sqlite3 ~/.memory-bread/memory-bread.db < migrations/001_init.sql
+sqlite3 ~/.memory-bread/memory-bread.db < migrations/002_seed_defaults.sql
+sqlite3 ~/.memory-bread/memory-bread.db < migrations/003_views.sql
 ```
 
 ### 验证 Schema
 
 ```bash
-sqlite3 ~/.workbuddy/workbuddy.db < validate.sql
+sqlite3 ~/.memory-bread/memory-bread.db < validate.sql
 ```
 
 期望输出（全部 ✅）：
@@ -76,8 +76,8 @@ sqlite3 ~/.workbuddy/workbuddy.db < validate.sql
 ### 手动清理（测试用）
 
 ```bash
-sqlite3 ~/.workbuddy/workbuddy.db < cleanup.sql
-sqlite3 ~/.workbuddy/workbuddy.db "VACUUM;"
+sqlite3 ~/.memory-bread/memory-bread.db < cleanup.sql
+sqlite3 ~/.memory-bread/memory-bread.db "VACUUM;"
 ```
 
 ## 关键设计决策

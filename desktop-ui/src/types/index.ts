@@ -48,6 +48,7 @@ export interface RagContext {
   text:       string
   score:      number
   source:     'fts5' | 'vector' | 'merged'
+  app_name?:  string | null
 }
 
 export interface ActionCommand {
@@ -89,6 +90,7 @@ export interface MonitorOverview {
     knowledge_rate: number
     by_hour:        { hour: number; count: number }[]
     by_app:         { app: string; count: number }[]
+    recent:         { id: number; ts: number; app_name: string; win_title: string }[]
   }
   rag_sessions: {
     today_count:    number
@@ -200,6 +202,7 @@ export interface ActiveModels {
 export interface SystemResources {
   cpu_trend:    { ts: number; value: number }[]
   mem_trend:    { ts: number; value: number }[]
+  gpu_trend?:   { ts: number; value: number }[]
   disk_trend:   { ts: number; read_mb: number; write_mb: number }[]
   model_events: {
     ts:            number
@@ -219,5 +222,7 @@ export interface SystemResources {
     mem_used_mb:    number
     mem_percent:    number
     mem_process_mb: number
+    gpu_percent?:   number | null
+    gpu_name?:      string | null
   } | null
 }

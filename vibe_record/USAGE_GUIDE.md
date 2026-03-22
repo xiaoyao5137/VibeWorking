@@ -1,5 +1,5 @@
 ╔════════════════════════════════════════════════════════════╗
-║           WorkBuddy 数据采集使用指南                      ║
+║           记忆面包 数据采集使用指南                      ║
 ╚════════════════════════════════════════════════════════════╝
 
 ## ✅ 系统状态
@@ -29,7 +29,7 @@
 
 ### 方法 1: 调试面板（推荐）
 
-1. 打开 WorkBuddy 应用窗口
+1. 打开 记忆面包 应用窗口
 2. 点击左侧"设置"图标
 3. 点击"🔧 打开调试面板"
 4. 观察数据变化：
@@ -54,13 +54,13 @@ curl http://localhost:7070/api/vector/status
 
 ```bash
 # 查看总数
-sqlite3 ~/.workbuddy/workbuddy.db "SELECT COUNT(*) FROM captures;"
+sqlite3 ~/.memory-bread/memory-bread.db "SELECT COUNT(*) FROM captures;"
 
 # 查看最新 3 条
-sqlite3 ~/.workbuddy/workbuddy.db "SELECT id, app_name, win_title, datetime(ts/1000, 'unixepoch', 'localtime') FROM captures ORDER BY ts DESC LIMIT 3;"
+sqlite3 ~/.memory-bread/memory-bread.db "SELECT id, app_name, win_title, datetime(ts/1000, 'unixepoch', 'localtime') FROM captures ORDER BY ts DESC LIMIT 3;"
 
 # 查看截图列表
-ls -lht ~/.workbuddy/captures/screenshots/ | head -10
+ls -lht ~/.memory-bread/captures/screenshots/ | head -10
 ```
 
 ## 📸 采集的内容
@@ -110,8 +110,8 @@ let listener_config = ListenerConfig {
 ```bash
 cd core-engine
 cargo build --release
-pkill -f workbuddy
-./target/release/workbuddy &
+pkill -f memory-bread
+./target/release/memory-bread &
 ```
 
 ## 🔍 故障排查
@@ -120,7 +120,7 @@ pkill -f workbuddy
 
 1. **检查 Core Engine 是否运行**
    ```bash
-   ps aux | grep workbuddy
+   ps aux | grep memory-bread
    ```
 
 2. **查看日志**
@@ -136,7 +136,7 @@ pkill -f workbuddy
 
 3. **检查数据库**
    ```bash
-   sqlite3 ~/.workbuddy/workbuddy.db "SELECT COUNT(*) FROM captures;"
+   sqlite3 ~/.memory-bread/memory-bread.db "SELECT COUNT(*) FROM captures;"
    ```
 
 4. **重启服务**
@@ -148,13 +148,13 @@ pkill -f workbuddy
 
 检查权限：
 - macOS: 系统偏好设置 → 安全性与隐私 → 屏幕录制
-- 确保 Terminal 或 workbuddy 有权限
+- 确保 Terminal 或 memory-bread 有权限
 
 ### 如果 AX 文本为空
 
 这是正常的，需要：
 - macOS: 系统偏好设置 → 安全性与隐私 → 辅助功能
-- 授予 workbuddy 辅助功能权限
+- 授予 memory-bread 辅助功能权限
 
 ## 📈 性能考虑
 
@@ -167,10 +167,10 @@ pkill -f workbuddy
 ### 清理旧数据
 ```bash
 # 删除 7 天前的截图
-find ~/.workbuddy/captures/screenshots/ -name "*.jpg" -mtime +7 -delete
+find ~/.memory-bread/captures/screenshots/ -name "*.jpg" -mtime +7 -delete
 
 # 删除 30 天前的数据库记录
-sqlite3 ~/.workbuddy/workbuddy.db "DELETE FROM captures WHERE ts < strftime('%s', 'now', '-30 days') * 1000;"
+sqlite3 ~/.memory-bread/memory-bread.db "DELETE FROM captures WHERE ts < strftime('%s', 'now', '-30 days') * 1000;"
 ```
 
 ## 🎯 测试命令
@@ -197,14 +197,14 @@ cd /Users/xianjiaqi/Documents/mygit/cy/gzdz
 ### 只启动 Core Engine
 ```bash
 cd core-engine
-./target/release/workbuddy &
+./target/release/memory-bread &
 ```
 
 ### 停止服务
 ```bash
 ./start.sh stop
 # 或
-pkill -f workbuddy
+pkill -f memory-bread
 ```
 
 ### 重启服务
@@ -215,9 +215,9 @@ pkill -f workbuddy
 ## 📝 日志位置
 
 - **Core Engine**: `/private/tmp/claude-501/.../tasks/blsi9wrfw.output`
-- **AI Sidecar**: `~/.workbuddy/logs/sidecar.log`
-- **数据库**: `~/.workbuddy/workbuddy.db`
-- **截图**: `~/.workbuddy/captures/screenshots/`
+- **AI Sidecar**: `~/.memory-bread/logs/sidecar.log`
+- **数据库**: `~/.memory-bread/memory-bread.db`
+- **截图**: `~/.memory-bread/captures/screenshots/`
 
 ## 🎉 成功指标
 

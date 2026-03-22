@@ -1,5 +1,5 @@
 """
-WorkBuddy AI Sidecar 入口点
+记忆面包 AI Sidecar 入口点
 
 启动方式：
     python main.py                    # 生产模式（加载所有 AI 模型）
@@ -19,7 +19,7 @@ import os
 import signal
 import sys
 
-from workbuddy_ipc import IpcServer
+from memory_bread_ipc import IpcServer
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 日志配置
@@ -39,7 +39,7 @@ logger = logging.getLogger("sidecar.main")
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="WorkBuddy AI Sidecar",
+        description="记忆面包 AI Sidecar",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -66,7 +66,7 @@ async def _main() -> None:
 
     if args.dry_run:
         # 干运行：只处理 ping，其余任务返回 NOT_IMPLEMENTED
-        from workbuddy_ipc.transport import default_dispatch
+        from memory_bread_ipc.transport import default_dispatch
         dispatch_fn = default_dispatch
         logger.info("dry-run 模式：使用内置 ping-only 分发器")
         bg_processor = None
@@ -85,7 +85,7 @@ async def _main() -> None:
         # 启动后台处理器（向量化 + 知识提炼）
         from background_processor import BackgroundProcessor
         from pathlib import Path
-        db_path = str(Path.home() / ".workbuddy" / "workbuddy.db")
+        db_path = str(Path.home() / ".memory-bread" / "memory-bread.db")
         bg_processor = BackgroundProcessor(db_path=db_path, interval=10, batch_size=20)
         asyncio.create_task(bg_processor.run())
         logger.info("后台处理器已启动（向量化 + 知识提炼）")
@@ -102,7 +102,7 @@ async def _main() -> None:
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, shutdown)
 
-    logger.info("WorkBuddy AI Sidecar 启动完成，等待 Rust Core Engine 连接...")
+    logger.info("记忆面包 AI Sidecar 启动完成，等待 Rust Core Engine 连接...")
     await server.serve()
     logger.info("Sidecar 已正常退出")
 

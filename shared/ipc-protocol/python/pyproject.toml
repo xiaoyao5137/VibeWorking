@@ -3,12 +3,12 @@ requires      = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name            = "workbuddy-ipc"
+name            = "memory-bread-ipc"
 version         = "0.1.0"
-description     = "WorkBuddy IPC 协议：Rust Core Engine ↔ Python AI Sidecar"
+description     = "记忆面包 IPC 协议：Rust Core Engine ↔ Python AI Sidecar"
 requires-python = ">=3.11"
 dependencies    = ["pydantic>=2.0"]
 
-# workbuddy_ipc/ 子目录即为包，setuptools 自动发现
+# memory_bread_ipc/ 子目录即为包，setuptools 自动发现
 [tool.setuptools.packages.find]
 where = ["."]

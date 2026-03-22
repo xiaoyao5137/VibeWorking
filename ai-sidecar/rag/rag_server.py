@@ -25,7 +25,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 创建 FastAPI 应用
-app = FastAPI(title="WorkBuddy RAG Service", version="0.1.0")
+app = FastAPI(title="记忆面包 RAG Service", version="0.1.0")
 
 # 全局服务实例
 qdrant_manager: Optional[QdrantManager] = None
@@ -70,7 +70,7 @@ async def startup_event():
     # 获取数据库路径
     db_path = os.getenv(
         "WORKBUDDY_DB_PATH",
-        os.path.expanduser("~/.workbuddy/workbuddy.db"),
+        os.path.expanduser("~/.memory-bread/memory-bread.db"),
     )
     
     # 初始化 Qdrant

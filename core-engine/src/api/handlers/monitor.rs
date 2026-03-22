@@ -82,6 +82,15 @@ pub struct CaptureFlow {
     pub knowledge_rate: f64,   // 已提炼比例
     pub by_hour:        Vec<HourCount>,
     pub by_app:         Vec<AppCount>,
+    pub recent:         Vec<CaptureItem>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CaptureItem {
+    pub id:        i64,
+    pub ts:        i64,
+    pub app_name:  String,
+    pub win_title: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -144,7 +153,7 @@ pub async fn monitor_overview(
     let from_ms  = now_ms - range_ms;
     let today_start = now_ms - (now_ms % (24 * 3600 * 1000)); // 今天 00:00 UTC
 
-    let overview = state.storage.with_conn(|conn| {
+    let overview = state.storage.with_conn_async(move |conn| {
         // ── 1. Token 用量 ────────────────────────────────────────────────────
         let total_period: i64 = conn.query_row(
             "SELECT COALESCE(SUM(total_tokens), 0) FROM llm_usage_logs WHERE ts >= ?1",
@@ -248,6 +257,23 @@ pub async fn monitor_overview(
             .filter_map(|r| r.ok())
             .collect();
 
+        let mut recent_capture_stmt = conn.prepare(
+            "SELECT id, ts, COALESCE(app_name, '未知'), COALESCE(win_title, '')
+             FROM captures WHERE ts >= ?1
+             ORDER BY ts DESC LIMIT 10"
+        )?;
+        let recent: Vec<CaptureItem> = recent_capture_stmt
+            .query_map(rusqlite::params![from_ms], |r| {
+                Ok(CaptureItem {
+                    id: r.get(0)?,
+                    ts: r.get(1)?,
+                    app_name: r.get(2)?,
+                    win_title: r.get(3)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
         // ── 3. RAG 问答 ──────────────────────────────────────────────────────
         let today_rag: i64 = conn.query_row(
             "SELECT COUNT(*) FROM rag_sessions WHERE ts >= ?1",
@@ -341,6 +367,7 @@ pub async fn monitor_overview(
                 knowledge_rate,
                 by_hour,
                 by_app,
+                recent,
             },
             rag_sessions: RagSessionStats {
                 today_count: today_rag,
@@ -356,7 +383,7 @@ pub async fn monitor_overview(
                 recent: recent_exec,
             },
         })
-    })?;
+    }).await?;
 
     Ok(Json(overview))
 }
@@ -367,6 +394,7 @@ pub async fn monitor_overview(
 pub struct SystemResourcesResponse {
     pub cpu_trend:     Vec<MetricPoint>,
     pub mem_trend:     Vec<MetricPoint>,
+    pub gpu_trend:     Vec<MetricPoint>,
     pub disk_trend:    Vec<DiskPoint>,
     pub model_events:  Vec<ModelEventItem>,
     pub latest:        Option<LatestMetrics>,
@@ -406,6 +434,8 @@ pub struct LatestMetrics {
     pub mem_used_mb:    i64,
     pub mem_percent:    f64,
     pub mem_process_mb: i64,
+    pub gpu_percent:    Option<f64>,
+    pub gpu_name:       Option<String>,
 }
 
 /// GET /api/monitor/system?range=1h|6h|24h
@@ -425,7 +455,7 @@ pub async fn monitor_system(
     let max_points: i64 = 120;
     let bucket_ms = range_ms / max_points;
 
-    let result = state.storage.with_conn(|conn| {
+    let result = state.storage.with_conn_async(move |conn| {
         // CPU 趋势（按 bucket 聚合均值）
         let mut cpu_stmt = conn.prepare(
             "SELECT (ts / ?1) * ?1 + ?1/2 as bucket, AVG(cpu_total)
@@ -452,6 +482,9 @@ pub async fn monitor_system(
             .filter_map(|r| r.ok())
             .collect();
 
+        // GPU 趋势（当前版本如无采样则返回空）
+        let gpu_trend: Vec<MetricPoint> = Vec::new();
+
         // 磁盘 IO 趋势
         let mut disk_stmt = conn.prepare(
             "SELECT (ts / ?1) * ?1 + ?1/2 as bucket, SUM(disk_read_mb), SUM(disk_write_mb)
@@ -477,6 +510,8 @@ pub async fn monitor_system(
                 mem_used_mb:    r.get(3)?,
                 mem_percent:    r.get(4)?,
                 mem_process_mb: r.get(5)?,
+                gpu_percent:    std::env::var("WORKBUDDY_GPU_PERCENT").ok().and_then(|v| v.parse::<f64>().ok()),
+                gpu_name:       std::env::var("WORKBUDDY_GPU_NAME").ok(),
             }),
         ).ok();
 
@@ -504,8 +539,8 @@ pub async fn monitor_system(
             .filter_map(|r| r.ok())
             .collect();
 
-        Ok(SystemResourcesResponse { cpu_trend, mem_trend, disk_trend, model_events, latest })
-    })?;
+        Ok(SystemResourcesResponse { cpu_trend, mem_trend, gpu_trend, disk_trend, model_events, latest })
+    }).await?;
 
     Ok(Json(result))
 }

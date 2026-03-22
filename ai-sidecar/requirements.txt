@@ -1,4 +1,4 @@
-# WorkBuddy AI Sidecar 依赖清单
+# 记忆面包 AI Sidecar 依赖清单
 # 安装命令：pip install -r requirements.txt
 
 # ── IPC 协议（本地包）─────────────────────────────────────────────────────────

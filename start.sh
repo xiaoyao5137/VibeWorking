@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# WorkBuddy 启动脚本
+# 记忆面包 启动脚本
 #
 # 按顺序启动三个服务：
 # 1. AI Sidecar (Python)
@@ -26,16 +26,18 @@ NC='\033[0m' # No Color
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # 日志目录
-LOG_DIR="$HOME/.workbuddy/logs"
+LOG_DIR="$HOME/.memory-bread/logs"
 mkdir -p "$LOG_DIR"
 
 # PID 文件
 SIDECAR_PID_FILE="$LOG_DIR/sidecar.pid"
+MODEL_API_PID_FILE="$LOG_DIR/model_api.pid"
 CORE_PID_FILE="$LOG_DIR/core.pid"
 UI_PID_FILE="$LOG_DIR/ui.pid"
 
 # 日志文件
 SIDECAR_LOG="$LOG_DIR/sidecar.log"
+MODEL_API_LOG="$LOG_DIR/model_api.log"
 CORE_LOG="$LOG_DIR/core.log"
 UI_LOG="$LOG_DIR/ui.log"
 
@@ -125,6 +127,18 @@ stop_all() {
         rm -f "$SIDECAR_PID_FILE"
     fi
 
+    # 停止 Model API Server
+    if is_running "$MODEL_API_PID_FILE"; then
+        local pid=$(cat "$MODEL_API_PID_FILE")
+        log_info "停止 Model API Server (PID: $pid)"
+        kill "$pid" 2>/dev/null || true
+        sleep 1
+        if ps -p "$pid" > /dev/null 2>&1; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+        rm -f "$MODEL_API_PID_FILE"
+    fi
+
     log_success "所有服务已停止"
 }
 
@@ -173,7 +187,12 @@ start_sidecar() {
     nohup python main.py > "$SIDECAR_LOG" 2>&1 &
     echo $! > "$SIDECAR_PID_FILE"
 
+    # 启动 Model API Server（后台运行）
+    nohup python model_api_server.py > "$MODEL_API_LOG" 2>&1 &
+    echo $! > "$MODEL_API_PID_FILE"
+
     log_success "AI Sidecar 已启动 (PID: $(cat $SIDECAR_PID_FILE))"
+    log_success "Model API Server 已启动 (PID: $(cat $MODEL_API_PID_FILE))"
     log_info "日志文件: $SIDECAR_LOG"
 
     # 等待 Sidecar 启动
@@ -188,13 +207,13 @@ start_core() {
     cd "$PROJECT_ROOT/core-engine"
 
     # 构建（如果需要）
-    if [ ! -f "target/release/workbuddy" ]; then
+    if [ ! -f "target/release/memory-bread" ]; then
         log_info "首次运行，正在构建 Core Engine..."
         cargo build --release
     fi
 
     # 启动 Core Engine（后台运行）
-    nohup ./target/release/workbuddy > "$CORE_LOG" 2>&1 &
+    nohup ./target/release/memory-bread > "$CORE_LOG" 2>&1 &
     echo $! > "$CORE_PID_FILE"
 
     log_success "Core Engine 已启动 (PID: $(cat $CORE_PID_FILE))"
@@ -236,7 +255,7 @@ start_ui() {
 main() {
     echo ""
     echo "╔════════════════════════════════════════╗"
-    echo "║     WorkBuddy 启动脚本 v1.0           ║"
+    echo "║     记忆面包 启动脚本 v1.0           ║"
     echo "╚════════════════════════════════════════╝"
     echo ""
 

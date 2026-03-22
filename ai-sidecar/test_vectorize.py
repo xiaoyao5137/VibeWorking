@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def main():
-    db_path = str(Path.home() / ".workbuddy" / "workbuddy.db")
+    db_path = str(Path.home() / ".memory-bread" / "memory-bread.db")
     qdrant_path = str(Path.home() / ".qdrant")
 
     logger.info("初始化向量化组件...")
@@ -22,7 +22,7 @@ async def main():
     storage = VectorStorage(
         db_path=db_path,
         qdrant_path=qdrant_path,
-        collection_name="workbuddy_captures"
+        collection_name="memory_bread_captures"
     )
 
     logger.info("开始批量向量化...")

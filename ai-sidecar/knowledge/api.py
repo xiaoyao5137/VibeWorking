@@ -43,7 +43,7 @@ class ExtractRequest(BaseModel):
 
 
 # 创建 FastAPI 应用
-app = FastAPI(title="WorkBuddy Knowledge API", version="1.0.0")
+app = FastAPI(title="记忆面包 Knowledge API", version="1.0.0")
 
 
 @app.get("/api/knowledge", response_model=Dict[str, Any])
@@ -233,7 +233,7 @@ async def extract_knowledge(request: ExtractRequest):
         import sqlite3
         from pathlib import Path
 
-        db_path = str(Path.home() / ".workbuddy" / "workbuddy.db")
+        db_path = str(Path.home() / ".memory-bread" / "memory-bread.db")
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()

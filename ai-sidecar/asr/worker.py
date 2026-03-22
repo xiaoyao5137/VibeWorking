@@ -12,8 +12,8 @@ import logging
 import os
 import time
 
-from workbuddy_ipc         import IpcRequest, IpcResponse
-from workbuddy_ipc.message import AsrResult, AsrSegment as IpcAsrSegment
+from memory_bread_ipc         import IpcRequest, IpcResponse
+from memory_bread_ipc.message import AsrResult, AsrSegment as IpcAsrSegment
 
 from .model import AsrModel
 

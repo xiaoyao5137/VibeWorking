@@ -28,13 +28,13 @@ def get_rag_pipeline():
         from rag.llm.ollama import OllamaBackend
         from rag.pipeline import RagPipeline
 
-        db_path = str(Path.home() / ".workbuddy" / "workbuddy.db")
+        db_path = str(Path.home() / ".memory-bread" / "memory-bread.db")
         qdrant_path = str(Path.home() / ".qdrant")
 
         embedding_model = EmbeddingModel.create_default()
         # 使用本地 Qdrant 模式
         vector_retriever = VectorRetriever(
-            collection="workbuddy_captures",
+            collection="memory_bread_captures",
             qdrant_path=qdrant_path
         )
         fts5_retriever = Fts5Retriever(db_path=db_path)

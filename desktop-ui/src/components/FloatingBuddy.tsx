@@ -19,7 +19,7 @@ const FloatingBuddy: React.FC<FloatingBuddyProps> = ({ className = '' }) => {
   const { windowMode, setWindowMode } = useAppStore()
 
   const handleClick = () => {
-    // 主按钮始终打开工作搭子面板，不支持收起
+    // 主按钮始终打开记忆面包面板，不支持收起
     setWindowMode('rag')
   }
 
@@ -58,8 +58,8 @@ const FloatingBuddy: React.FC<FloatingBuddyProps> = ({ className = '' }) => {
         className="buddy-main-btn"
         data-testid="buddy-avatar"
         onClick={handleClick}
-        aria-label="打开工作搭子"
-        title="打开工作搭子"
+        aria-label="打开记忆面包"
+        title="打开记忆面包"
         type="button"
       >
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

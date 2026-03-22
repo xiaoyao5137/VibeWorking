@@ -80,10 +80,10 @@ pub struct IpcClient {
 }
 
 impl IpcClient {
-    /// 创建默认客户端（连接到 /tmp/workbuddy-sidecar.sock）
+    /// 创建默认客户端（连接到 /tmp/memory-bread-sidecar.sock）
     pub fn new() -> Self {
         Self {
-            socket_path: "/tmp/workbuddy-sidecar.sock".to_string(),
+            socket_path: "/tmp/memory-bread-sidecar.sock".to_string(),
             timeout: Duration::from_secs(10), // 改为 10 秒超时
         }
     }
@@ -232,6 +232,6 @@ mod tests {
     #[test]
     fn test_ipc_client_creation() {
         let client = IpcClient::new();
-        assert_eq!(client.socket_path, "/tmp/workbuddy-sidecar.sock");
+        assert_eq!(client.socket_path, "/tmp/memory-bread-sidecar.sock");
     }
 }

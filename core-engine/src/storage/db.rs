@@ -44,7 +44,7 @@ impl StorageManager {
 
     /// 打开（或创建）数据库，执行所有待执行的迁移，返回管理器实例。
     ///
-    /// `db_path` 通常为 `~/.workbuddy/workbuddy.db`。
+    /// `db_path` 通常为 `~/.memory-bread/memory-bread.db`。
     pub fn open(db_path: &Path) -> Result<Self, StorageError> {
         // 确保父目录存在
         if let Some(parent) = db_path.parent() {

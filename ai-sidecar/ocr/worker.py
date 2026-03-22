@@ -16,7 +16,7 @@ import asyncio
 import logging
 import time
 
-from workbuddy_ipc import IpcRequest, IpcResponse, OcrResult
+from memory_bread_ipc import IpcRequest, IpcResponse, OcrResult
 
 from .engine import OcrEngine
 

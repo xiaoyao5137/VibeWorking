@@ -3,7 +3,7 @@
 //! 帧格式：[4字节大端 uint32 消息长度][N字节 UTF-8 JSON]
 //!
 //! 平台路由：
-//! - macOS/Linux：Unix Domain Socket（/tmp/workbuddy-sidecar.sock）
+//! - macOS/Linux：Unix Domain Socket（/tmp/memory-bread-sidecar.sock）
 //! - Windows：TCP Loopback（127.0.0.1:17071）
 
 use std::time::Duration;
@@ -30,7 +30,7 @@ const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
 /// macOS/Linux Unix Socket 路径
 #[cfg(unix)]
-pub const UNIX_SOCKET_PATH: &str = "/tmp/workbuddy-sidecar.sock";
+pub const UNIX_SOCKET_PATH: &str = "/tmp/memory-bread-sidecar.sock";
 
 /// Windows TCP 端口
 pub const TCP_PORT: u16 = 17071;

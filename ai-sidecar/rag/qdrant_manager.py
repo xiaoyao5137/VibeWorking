@@ -27,7 +27,7 @@ class QdrantManager:
         self,
         host: str = "localhost",
         port: int = 6333,
-        collection_name: str = "workbuddy_captures",
+        collection_name: str = "memory_bread_captures",
         vector_size: int = 1024,  # bge-m3 的向量维度
     ):
         """

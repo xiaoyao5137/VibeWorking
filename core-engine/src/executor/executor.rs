@@ -31,7 +31,7 @@ impl Default for ExecutionMode {
 ///
 /// # 示例
 /// ```rust,no_run
-/// use workbuddy_core::executor::{AutomationExecutor, ActionCommand};
+/// use memory_bread_core::executor::{AutomationExecutor, ActionCommand};
 ///
 /// let executor = AutomationExecutor::new(Default::default());
 /// let cmd = ActionCommand::Click { x: 100.0, y: 200.0 };

@@ -2,7 +2,7 @@
 //!
 //! 外部代码只需：
 //! ```rust
-//! use workbuddy_core::storage::{StorageManager, models::*, error::StorageError};
+//! use memory_bread_core::storage::{StorageManager, models::*, error::StorageError};
 //! ```
 
 pub mod cleanup;

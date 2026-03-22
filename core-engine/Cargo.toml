@@ -1,15 +1,15 @@
 [package]
-name        = "workbuddy-core"
+name        = "memory-bread-core"
 version     = "0.1.0"
 edition     = "2021"
-description = "WorkBuddy core engine — capture, storage, executor, API server"
+description = "记忆面包 core engine — capture, storage, executor, API server"
 
 [[bin]]
-name = "workbuddy"
+name = "memory-bread"
 path = "src/main.rs"
 
 [lib]
-name = "workbuddy_core"
+name = "memory_bread_core"
 path = "src/lib.rs"
 
 [dependencies]
@@ -32,7 +32,7 @@ tracing    = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # IPC 协议（共享 crate）
-workbuddy-ipc = { path = "../shared/ipc-protocol/rust" }
+memory-bread-ipc = { path = "../shared/ipc-protocol/rust" }
 
 # 时间
 chrono     = { version = "0.4", features = ["serde"] }

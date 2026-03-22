@@ -1,5 +1,5 @@
 ╔════════════════════════════════════════════════════════════╗
-║           WorkBuddy 文本采集权限配置指南                  ║
+║           记忆面包 文本采集权限配置指南                  ║
 ╚════════════════════════════════════════════════════════════╝
 
 ## 📝 为什么文本字段是空的？
@@ -31,14 +31,14 @@
 **Chrome 用户**:
 1. 打开 Google Chrome
 2. 菜单栏 → **View** → **Developer** → **Allow JavaScript from Apple Events** ✓
-3. 重启 WorkBuddy
+3. 重启 记忆面包
 
 **Safari 用户**:
 1. 打开 Safari
 2. 菜单栏 → **Safari** → **Preferences** → **Advanced**
 3. 勾选 **Show Develop menu in menu bar** ✓
 4. 菜单栏 → **Develop** → **Allow JavaScript from Apple Events** ✓
-5. 重启 WorkBuddy
+5. 重启 记忆面包
 
 #### 方法 B: 系统辅助功能权限
 
@@ -46,10 +46,10 @@
 2. **安全性与隐私** → **隐私** → **辅助功能**
 3. 点击左下角 🔒 解锁
 4. 添加以下应用：
-   - `/Users/你的用户名/Documents/mygit/cy/gzdz/core-engine/target/release/workbuddy`
+   - `/Users/你的用户名/Documents/mygit/cy/gzdz/core-engine/target/release/memory-bread`
    - Terminal（如果从终端启动）
 5. 勾选 ✓ 启用
-6. 重启 WorkBuddy
+6. 重启 记忆面包
 
 **效果**:
 - ✅ Chrome/Safari: 可以提取完整的网页文本内容（标题 + 正文）
@@ -190,7 +190,7 @@
 
 **配置步骤**:
 1. Chrome: View → Developer → Allow JavaScript from Apple Events
-2. 重启 WorkBuddy
+2. 重启 记忆面包
 
 **优点**: 免费，可以提取网页内容
 **缺点**: 只对浏览器有效
@@ -277,9 +277,9 @@ if data['captures']:
 
 1. **打开 Chrome 浏览器**
 2. **菜单栏** → View → Developer → **Allow JavaScript from Apple Events** ✓
-3. **重启 WorkBuddy**:
+3. **重启 记忆面包**:
    ```bash
-   pkill -f workbuddy
+   pkill -f memory-bread
    ./start.sh
    ```
 4. **打开任意网页**（确保 Chrome 在前台）

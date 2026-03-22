@@ -1,7 +1,7 @@
-# WorkBuddy 项目记忆
+# 记忆面包 项目记忆
 
 ## 项目概述
-- 名称：WorkBuddy（工作搭子）
+- 名称：记忆面包（记忆面包）
 - 类型：macOS 本地 AI 工作助手
 - 架构：Tauri + React/TypeScript 前端 + Rust core-engine + Python ai-sidecar
 
@@ -39,7 +39,7 @@
 - core-engine 使用 `storage.with_conn_async()` 访问数据库（非直接 `.lock()`）
 - 前端 API 调用：core-engine 用 `apiBaseUrl`（7070），模型/RAG 用 sidecar（7071）
 - WindowMode 类型控制面板切换：rag/knowledge/models/settings/debug/tasks/monitor
-- 首次引导状态持久化到 localStorage（workbuddy_setup_done / workbuddy_setup_skipped）
+- 首次引导状态持久化到 localStorage（memory-bread_setup_done / memory-bread_setup_skipped）
 
 ## 用户偏好
 - 主要沟通语言：中文

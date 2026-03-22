@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::{error::ApiError, state::AppState};
 
+const FALLBACK_NOISE_OVERVIEW_PREFIX: &str = "低价值工作片段（";
+
 /// 知识条目
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KnowledgeEntry {
@@ -65,11 +67,12 @@ pub async fn list_knowledge(
                 "SELECT id, capture_id, summary, overview, details, entities, category, importance,
                  occurrence_count, user_verified, user_edited, created_at, updated_at
                  FROM knowledge_entries WHERE category = ?1
-                 ORDER BY created_at DESC LIMIT ?2 OFFSET ?3"
-            ).map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
+                   AND summary NOT LIKE ?2
+                 ORDER BY created_at DESC LIMIT ?3 OFFSET ?4"
+            ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
 
             let entries = stmt
-                .query_map(rusqlite::params![category, params.limit, params.offset], |row| {
+                .query_map(rusqlite::params![category, format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX), params.limit, params.offset], |row: &rusqlite::Row| {
                     let entities_json: String = row.get(5).unwrap_or_default();
                     let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
                     Ok(KnowledgeEntry {
@@ -82,17 +85,17 @@ pub async fn list_knowledge(
                         created_at: row.get(11)?, updated_at: row.get(12)?,
                     })
                 })
-                .map_err(|e| crate::storage::StorageError::Rusqlite(e))?
+                .map_err(|e| crate::storage::StorageError::Sqlite(e))?
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
+                .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
 
             let total: i64 = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM knowledge_entries WHERE category = ?1",
-                    rusqlite::params![category],
+                    "SELECT COUNT(*) FROM knowledge_entries WHERE category = ?1 AND summary NOT LIKE ?2",
+                    rusqlite::params![category, format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX)],
                     |row| row.get(0),
                 )
-                .map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
+                .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
 
             (entries, total)
         } else {
@@ -100,11 +103,12 @@ pub async fn list_knowledge(
                 "SELECT id, capture_id, summary, overview, details, entities, category, importance,
                  occurrence_count, user_verified, user_edited, created_at, updated_at
                  FROM knowledge_entries
-                 ORDER BY created_at DESC LIMIT ?1 OFFSET ?2"
-            ).map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
+                 WHERE summary NOT LIKE ?1
+                 ORDER BY created_at DESC LIMIT ?2 OFFSET ?3"
+            ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
 
             let entries = stmt
-                .query_map(rusqlite::params![params.limit, params.offset], |row| {
+                .query_map(rusqlite::params![format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX), params.limit, params.offset], |row: &rusqlite::Row| {
                     let entities_json: String = row.get(5).unwrap_or_default();
                     let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
                     Ok(KnowledgeEntry {
@@ -117,13 +121,17 @@ pub async fn list_knowledge(
                         created_at: row.get(11)?, updated_at: row.get(12)?,
                     })
                 })
-                .map_err(|e| crate::storage::StorageError::Rusqlite(e))?
+                .map_err(|e| crate::storage::StorageError::Sqlite(e))?
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
+                .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
 
             let total: i64 = conn
-                .query_row("SELECT COUNT(*) FROM knowledge_entries", [], |row| row.get(0))
-                .map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
+                .query_row(
+                    "SELECT COUNT(*) FROM knowledge_entries WHERE summary NOT LIKE ?1",
+                    [format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX)],
+                    |row| row.get(0),
+                )
+                .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
 
             (entries, total)
         };
@@ -143,7 +151,7 @@ pub async fn verify_knowledge(
         conn.execute(
             "UPDATE knowledge_entries SET user_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             [id],
-        ).map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
+        ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
         Ok(())
     }).await?;
     Ok(StatusCode::OK)
@@ -156,7 +164,7 @@ pub async fn delete_knowledge(
 ) -> Result<impl IntoResponse, ApiError> {
     state.storage.with_conn_async(move |conn| {
         conn.execute("DELETE FROM knowledge_entries WHERE id = ?", [id])
-            .map_err(|e| crate::storage::StorageError::Rusqlite(e))?;
+            .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
         Ok(())
     }).await?;
     Ok(StatusCode::OK)

@@ -9,7 +9,7 @@ sys.path.insert(0, '/Users/xianjiaqi/Documents/mygit/cy/gzdz/ai-sidecar')
 
 from ocr.backends.vision_pyobjc import AppleVisionBackend
 
-SCREENSHOT_DIR = os.path.expanduser("~/.workbuddy/captures/screenshots")
+SCREENSHOT_DIR = os.path.expanduser("~/.memory-bread/captures/screenshots")
 
 # 找到最新的截图
 screenshots = sorted([

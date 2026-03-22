@@ -6,6 +6,7 @@
 
 import logging
 import sqlite3
+import time
 import uuid
 from typing import List, Dict, Any, Optional
 from pathlib import Path
@@ -32,12 +33,12 @@ class VectorStorage:
             qdrant_host: Qdrant 服务地址
             qdrant_port: Qdrant 服务端口
         """
-        self.db_path = db_path or str(Path.home() / ".workbuddy" / "workbuddy.db")
+        self.db_path = db_path or str(Path.home() / ".memory-bread" / "memory-bread.db")
         self.qdrant_path = qdrant_path
         self.qdrant_host = qdrant_host
         self.qdrant_port = qdrant_port
         self._qdrant_client = None
-        self._collection_name = "workbuddy_captures"
+        self._collection_name = "memory_bread_captures"
 
         logger.info(f"VectorStorage 初始化: db={self.db_path}, qdrant_path={qdrant_path}")
     
@@ -54,7 +55,10 @@ class VectorStorage:
 
                 logger.info(f"使用 Qdrant 本地模式: {qdrant_path}")
                 self._qdrant_client = QdrantClient(path=str(qdrant_path))
-                
+
+                # 主进程/检索器已占用本地目录时，后台向量化降级为仅写 SQLite，不阻断知识提炼
+                # 这里保留客户端初始化逻辑；失败时由 store_vector() 做降级处理
+
                 # 确保集合存在
                 collections = self._qdrant_client.get_collections().collections
                 collection_names = [c.name for c in collections]
@@ -124,9 +128,8 @@ class VectorStorage:
                 
                 logger.debug(f"向量已写入 Qdrant: {point_id}")
             else:
-                logger.warning("Qdrant 不可用，跳过向量存储")
-                return False
-            
+                logger.warning("Qdrant 不可用，降级为仅写 SQLite vector_index")
+
             # 3. 写入 SQLite vector_index 表
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()

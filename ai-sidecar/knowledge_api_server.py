@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
-DB_PATH = str(Path.home() / ".workbuddy" / "workbuddy.db")
+DB_PATH = str(Path.home() / ".memory-bread" / "memory-bread.db")
 
 def get_db():
     """获取数据库连接"""

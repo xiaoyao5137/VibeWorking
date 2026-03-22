@@ -213,9 +213,9 @@ class TestRagPipeline:
         assert isinstance(result, RagResult)
 
     def test_answer_from_llm(self):
-        pipeline = _make_pipeline(llm_response="工作搭子回答")
+        pipeline = _make_pipeline(llm_response="记忆面包回答")
         result   = pipeline.query("任何问题")
-        assert result.answer == "工作搭子回答"
+        assert result.answer == "记忆面包回答"
 
     def test_contexts_included(self):
         fts = [_chunk(1, 0.9), _chunk(2, 0.7)]

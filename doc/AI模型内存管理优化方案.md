@@ -73,7 +73,7 @@ def _get_ocr_worker(self):
 **实际影响**:
 - 用户只用 OCR 功能，也会占用 200MB
 - 如果触发过一次 Embedding，内存直接飙升到 2.5GB
-- 在 8GB 内存的 Mac 上，WorkBuddy 可能占用 30%+ 内存
+- 在 8GB 内存的 Mac 上，记忆面包 可能占用 30%+ 内存
 - 导致系统频繁 swap，整体卡顿
 
 ---

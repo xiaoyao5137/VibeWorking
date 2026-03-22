@@ -143,7 +143,7 @@ async fn ocr_worker(&self) {
 
 ```bash
 # 1. 找一张截图
-SCREENSHOT=$(ls -t ~/.workbuddy/captures/screenshots/*.jpg | head -1)
+SCREENSHOT=$(ls -t ~/.memory-bread/captures/screenshots/*.jpg | head -1)
 echo "测试截图: $SCREENSHOT"
 
 # 2. 创建测试脚本
@@ -177,7 +177,7 @@ python3 /tmp/test_ocr.py "$SCREENSHOT"
 置信度: 0.92
 
 完整文本:
-WorkBuddy
+记忆面包
 调试面板
 最新采集记录
 ...
@@ -207,10 +207,10 @@ print(data['screenshot_path'])
 echo "截图路径: $SCREENSHOT"
 
 # 3. 执行 OCR
-OCR_TEXT=$(python3 /tmp/test_ocr.py ~/.workbuddy/captures/$SCREENSHOT | tail -n +4)
+OCR_TEXT=$(python3 /tmp/test_ocr.py ~/.memory-bread/captures/$SCREENSHOT | tail -n +4)
 
 # 4. 手动更新数据库
-sqlite3 ~/.workbuddy/workbuddy.db << EOF
+sqlite3 ~/.memory-bread/memory-bread.db << EOF
 UPDATE captures
 SET ocr_text = '$OCR_TEXT'
 WHERE id = $CAPTURE_ID;
@@ -270,7 +270,7 @@ from ocr.engine import OcrEngine
 import glob
 
 # 获取最新截图
-screenshots = sorted(glob.glob('/Users/xianjiaqi/.workbuddy/captures/screenshots/*.jpg'))
+screenshots = sorted(glob.glob('/Users/xianjiaqi/.memory-bread/captures/screenshots/*.jpg'))
 latest = screenshots[-1]
 
 print(f"测试截图: {latest}")

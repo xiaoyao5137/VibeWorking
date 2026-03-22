@@ -27,7 +27,22 @@ function fmt(n: number): string {
 }
 
 function fmtTs(ms: number): string {
-  return new Date(ms).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return new Date(ms).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+}
+
+function fmtAxisTs(ms: number): string {
+  return new Date(ms).toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
 }
 
 function fmtMs(ms: number | null): string {
@@ -37,30 +52,98 @@ function fmtMs(ms: number | null): string {
 }
 
 // ── 迷你折线图（纯 SVG）────────────────────────────────────────────────────
-const SparkLine: React.FC<{ data: number[]; color: string; height?: number }> = ({
-  data, color, height = 40,
+type LinePoint = { ts: number; value: number }
+
+const SparkLine: React.FC<{
+  data: LinePoint[]
+  color: string
+  height?: number
+  valueFormatter?: (value: number) => string
+  axisFormatter?: (ts: number) => string
+  detailFormatter?: (point: LinePoint) => string
+}> = ({
+  data,
+  color,
+  height = 40,
+  valueFormatter = (value) => String(value),
+  axisFormatter = fmtAxisTs,
+  detailFormatter,
 }) => {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+
   if (!data.length) return null
-  const w = 200, h = height, pad = 4
-  const max = Math.max(...data, 1)
-  const pts = data.map((v, i) => {
+
+  const w = 200
+  const h = height
+  const pad = 8
+  const max = Math.max(...data.map(d => d.value), 1)
+  const min = Math.min(...data.map(d => d.value), 0)
+  const range = Math.max(max - min, 1)
+  const points = data.map((d, i) => {
     const x = pad + (i / Math.max(data.length - 1, 1)) * (w - pad * 2)
-    const y = h - pad - (v / max) * (h - pad * 2)
-    return `${x},${y}`
-  }).join(' ')
-  const area = `${pad},${h - pad} ` + pts + ` ${w - pad},${h - pad}`
+    const y = h - pad - ((d.value - min) / range) * (h - pad * 2)
+    return { ...d, x, y }
+  })
+  const pts = points.map(p => `${p.x},${p.y}`).join(' ')
+  const area = `${pad},${h - pad} ${pts} ${w - pad},${h - pad}`
+  const hoverPoint = hoverIndex !== null ? points[hoverIndex] : null
 
   return (
-    <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: 'block' }}>
-      <defs>
-        <linearGradient id={`grad-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={color} stopOpacity="0.02" />
-        </linearGradient>
-      </defs>
-      <polygon points={area} fill={`url(#grad-${color.replace('#', '')})`} />
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
-    </svg>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 6 }}>
+        <div style={{ width: 34, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontSize: 9, color: '#AEAEB2', textAlign: 'right', paddingTop: 2, paddingBottom: 22 }}>
+          <span>{valueFormatter(max)}</span>
+          <span>{valueFormatter((max + min) / 2)}</span>
+          <span>{valueFormatter(min)}</span>
+        </div>
+        <div style={{ flex: 1 }}>
+          <svg
+            width="100%"
+            viewBox={`0 0 ${w} ${h}`}
+            preserveAspectRatio="none"
+            style={{ display: 'block', overflow: 'visible' }}
+            onMouseLeave={() => setHoverIndex(null)}
+          >
+            <defs>
+              <linearGradient id={`grad-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+                <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+              </linearGradient>
+            </defs>
+            <polygon points={area} fill={`url(#grad-${color.replace('#', '')})`} />
+            <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
+            {points.map((p, i) => (
+              <circle
+                key={i}
+                cx={p.x}
+                cy={p.y}
+                r={6}
+                fill="transparent"
+                onMouseEnter={() => setHoverIndex(i)}
+              />
+            ))}
+            {hoverPoint && (
+              <>
+                <line x1={hoverPoint.x} y1={pad} x2={hoverPoint.x} y2={h - pad} stroke={color} strokeOpacity="0.35" strokeDasharray="2 2" />
+                <circle cx={hoverPoint.x} cy={hoverPoint.y} r={3} fill={color} />
+              </>
+            )}
+          </svg>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10, color: '#AEAEB2' }}>
+            <span>{axisFormatter(data[0].ts)}</span>
+            <span>{axisFormatter(data[Math.floor(data.length / 2)].ts)}</span>
+            <span>{axisFormatter(data[data.length - 1].ts)}</span>
+          </div>
+        </div>
+      </div>
+      <div style={{ fontSize: 11, color: '#6E6E73', marginTop: 6, minHeight: 16 }}>
+        {hoverPoint
+          ? (detailFormatter ? detailFormatter(hoverPoint) : `${fmtTs(hoverPoint.ts)} · ${valueFormatter(hoverPoint.value)}`)
+          : (detailFormatter
+              ? detailFormatter(data[data.length - 1])
+              : `最近: ${fmtTs(data[data.length - 1].ts)} · ${valueFormatter(data[data.length - 1].value)}`)}
+      </div>
+    </div>
   )
 }
 
@@ -68,25 +151,45 @@ const SparkLine: React.FC<{ data: number[]; color: string; height?: number }> = 
 const BarChart: React.FC<{
   data: { label: string; value: number; color?: string }[]
   height?: number
-}> = ({ data, height = 80 }) => {
+  valueFormatter?: (value: number) => string
+}> = ({ data, height = 80, valueFormatter = (value) => String(value) }) => {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   if (!data.length) return null
   const max = Math.max(...data.map(d => d.value), 1)
+  const mid = max / 2
+  const hoverItem = hoverIndex !== null ? data[hoverIndex] : null
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height }}>
-      {data.map((d, i) => (
-        <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-          <div style={{
-            width: '100%', borderRadius: '3px 3px 0 0',
-            height: Math.max((d.value / max) * (height - 20), 2),
-            background: d.color || '#007AFF',
-            opacity: 0.85,
-          }} title={`${d.label}: ${d.value}`} />
-          <span style={{ fontSize: 9, color: '#AEAEB2', textAlign: 'center',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
-            {d.label}
-          </span>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 6, height }}>
+        <div style={{ width: 34, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontSize: 9, color: '#AEAEB2', textAlign: 'right', paddingTop: 2, paddingBottom: 18 }}>
+          <span>{valueFormatter(max)}</span>
+          <span>{valueFormatter(mid)}</span>
+          <span>{valueFormatter(0)}</span>
         </div>
-      ))}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: 4, height }}>
+          {data.map((d, i) => (
+            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+              <div
+                style={{
+                  width: '100%', borderRadius: '3px 3px 0 0',
+                  height: Math.max((d.value / max) * (height - 20), 2),
+                  background: d.color || '#007AFF',
+                  opacity: hoverIndex === i ? 1 : 0.85,
+                }}
+                title={`${d.label}: ${valueFormatter(d.value)}`}
+                onMouseEnter={() => setHoverIndex(i)}
+                onMouseLeave={() => setHoverIndex(null)}
+              />
+              <span style={{ fontSize: 9, color: '#AEAEB2', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
+                {d.label}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ fontSize: 11, color: '#6E6E73', marginTop: 6, minHeight: 16 }}>
+        {hoverItem ? `${hoverItem.label || '当前'} · ${valueFormatter(hoverItem.value)}` : '悬停柱子可查看具体值'}
+      </div>
     </div>
   )
 }
@@ -126,14 +229,17 @@ const OverviewContent: React.FC<{ data: MonitorOverview }> = ({ data }) => {
         <div style={sectionTitle}>Token 用量趋势</div>
         {trendValues.length > 1 ? (
           <>
-            <SparkLine data={trendValues} color="#007AFF" height={50} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-              {token_usage.trend.map((t, i) => (
-                (i === 0 || i === Math.floor(token_usage.trend.length / 2) || i === token_usage.trend.length - 1)
-                  ? <span key={i} style={{ fontSize: 10, color: '#AEAEB2' }}>{t.date}</span>
-                  : null
-              ))}
-            </div>
+            <SparkLine
+              data={token_usage.trend.map((t, i) => ({ ts: i, value: t.tokens }))}
+              color="#007AFF"
+              height={50}
+              valueFormatter={(value) => `${fmt(value)} tokens`}
+              axisFormatter={(index) => token_usage.trend[index]?.date || ''}
+              detailFormatter={(point) => {
+                const item = token_usage.trend[point.ts]
+                return item ? `${item.date} · ${fmt(item.tokens)} tokens · ${item.calls} 次` : ''
+              }}
+            />
           </>
         ) : <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>暂无趋势数据</div>}
       </div>
@@ -190,7 +296,7 @@ const OverviewContent: React.FC<{ data: MonitorOverview }> = ({ data }) => {
               label: h % 4 === 0 ? String(h) : '',
               value: capture_flow.by_hour.find(b => b.hour === h)?.count || 0,
               color: '#34C759',
-            }))} height={70} />
+            }))} height={70} valueFormatter={(value) => `${value} 条`} />
           : <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>今日暂无采集数据</div>}
         {capture_flow.by_app.length > 0 && (
           <div style={{ marginTop: 10 }}>
@@ -201,6 +307,23 @@ const OverviewContent: React.FC<{ data: MonitorOverview }> = ({ data }) => {
                   background: 'rgba(52,199,89,0.1)', color: '#34C759' }}>{a.app} {a.count}</div>
               ))}
             </div>
+          </div>
+        )}
+        {capture_flow.recent.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 11, color: '#6E6E73', marginBottom: 6 }}>最近采集记录</div>
+            {capture_flow.recent.map((c, i) => (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
+                borderBottom: i < capture_flow.recent.length - 1 ? '1px solid rgba(0,0,0,0.05)' : 'none' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: '#333' }}>{c.app_name || '未知应用'}</div>
+                  <div style={{ fontSize: 11, color: '#AEAEB2', marginTop: 2 }}>{fmtTs(c.ts)}</div>
+                </div>
+                <div style={{ fontSize: 11, color: '#6E6E73', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {c.win_title || '—'}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -266,6 +389,14 @@ const SystemContent: React.FC<{ data: SystemResources | null }> = ({ data }) => 
           <StatCard label="内存使用" value={`${latest.mem_percent.toFixed(1)}%`}
             sub={`${latest.mem_used_mb.toLocaleString()} / ${latest.mem_total_mb.toLocaleString()} MB`} color="#007AFF" />
           <StatCard label="进程内存" value={`${latest.mem_process_mb} MB`} color="#AF52DE" />
+          {(latest.gpu_percent != null || latest.gpu_name) && (
+            <StatCard
+              label="GPU 状态"
+              value={latest.gpu_percent != null ? `${latest.gpu_percent.toFixed(1)}%` : '已检测'}
+              sub={latest.gpu_name || 'GPU'}
+              color="#34C759"
+            />
+          )}
         </div>
       )}
 
@@ -273,7 +404,12 @@ const SystemContent: React.FC<{ data: SystemResources | null }> = ({ data }) => 
       <div style={cardStyle}>
         <div style={sectionTitle}>CPU 使用率趋势</div>
         {cpu_trend.length > 1
-          ? <SparkLine data={cpu_trend.map(p => p.value)} color="#FF9500" height={50} />
+          ? <SparkLine
+              data={cpu_trend}
+              color="#FF9500"
+              height={50}
+              valueFormatter={(value) => `${value.toFixed(1)}%`}
+            />
           : <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>暂无数据</div>}
       </div>
 
@@ -281,24 +417,54 @@ const SystemContent: React.FC<{ data: SystemResources | null }> = ({ data }) => 
       <div style={cardStyle}>
         <div style={sectionTitle}>内存使用率趋势</div>
         {mem_trend.length > 1
-          ? <SparkLine data={mem_trend.map(p => p.value)} color="#007AFF" height={50} />
+          ? <SparkLine
+              data={mem_trend}
+              color="#007AFF"
+              height={50}
+              valueFormatter={(value) => `${value.toFixed(1)}%`}
+            />
           : <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>暂无数据</div>}
       </div>
+
+      {/* GPU 趋势 */}
+      {data.gpu_trend && data.gpu_trend.length > 1 && (
+        <div style={cardStyle}>
+          <div style={sectionTitle}>GPU 使用率趋势</div>
+          <SparkLine
+            data={data.gpu_trend}
+            color="#34C759"
+            height={50}
+            valueFormatter={(value) => `${value.toFixed(1)}%`}
+          />
+        </div>
+      )}
 
       {/* 磁盘 IO */}
       <div style={cardStyle}>
         <div style={sectionTitle}>磁盘 IO（MB）</div>
         {disk_trend.length > 1 ? (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 11, color: '#34C759', marginBottom: 4 }}>读取</div>
-              <SparkLine data={disk_trend.map(p => p.read_mb)} color="#34C759" height={40} />
+          <>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, color: '#34C759', marginBottom: 4 }}>读取</div>
+                <SparkLine
+                  data={disk_trend.map(p => ({ ts: p.ts, value: p.read_mb }))}
+                  color="#34C759"
+                  height={40}
+                  valueFormatter={(value) => `${value.toFixed(2)} MB`}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, color: '#FF3B30', marginBottom: 4 }}>写入</div>
+                <SparkLine
+                  data={disk_trend.map(p => ({ ts: p.ts, value: p.write_mb }))}
+                  color="#FF3B30"
+                  height={40}
+                  valueFormatter={(value) => `${value.toFixed(2)} MB`}
+                />
+              </div>
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 11, color: '#FF3B30', marginBottom: 4 }}>写入</div>
-              <SparkLine data={disk_trend.map(p => p.write_mb)} color="#FF3B30" height={40} />
-            </div>
-          </div>
+          </>
         ) : <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>暂无数据</div>}
       </div>
 

@@ -20,7 +20,7 @@ from dispatcher        import Dispatcher
 from ocr.backends.base import OcrBox, OcrOutput
 from ocr.engine        import OcrEngine
 from tests.conftest    import MockOcrBackend
-from workbuddy_ipc     import IpcResponse, ResponseStatus
+from memory_bread_ipc     import IpcResponse, ResponseStatus
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ class TestDispatcherUnknown:
     async def test_unknown_type_returns_not_implemented(self, make_ping_request):
         """未知任务类型应返回 NOT_IMPLEMENTED"""
         import time, uuid
-        from workbuddy_ipc import IpcRequest, PiiScrubRequest
+        from memory_bread_ipc import IpcRequest, PiiScrubRequest
 
         d   = Dispatcher()
         req = IpcRequest(
@@ -132,7 +132,7 @@ class TestDispatcherUnknown:
     async def test_embed_routes_to_worker(self, make_ping_request):
         """embed 任务应路由到 EmbedWorker（注入 Mock 后端）"""
         import time, uuid
-        from workbuddy_ipc import IpcRequest, EmbedRequest
+        from memory_bread_ipc import IpcRequest, EmbedRequest
         from embedding.worker import EmbedWorker
         from embedding.model  import EmbeddingModel
         from embedding.base   import EmbeddingBackend, EmbeddingVector
@@ -163,8 +163,8 @@ class TestDispatcherUnknown:
     async def test_asr_routes_to_worker(self, make_ping_request):
         """asr 任务应路由到 AsrWorker（注入 Mock 后端）"""
         import time, uuid
-        from workbuddy_ipc import IpcRequest
-        from workbuddy_ipc.message import AsrRequest
+        from memory_bread_ipc import IpcRequest
+        from memory_bread_ipc.message import AsrRequest
         from asr.worker  import AsrWorker
         from asr.model   import AsrModel
         from asr.backend import AsrBackend, AsrOutput, AsrSegment
@@ -210,8 +210,8 @@ class TestDispatcherUnknown:
     async def test_vlm_routes_to_worker(self, make_ping_request):
         """vlm 任务应路由到 VlmWorker（注入 Mock 后端）"""
         import time, uuid
-        from workbuddy_ipc import IpcRequest
-        from workbuddy_ipc.message import VlmRequest
+        from memory_bread_ipc import IpcRequest
+        from memory_bread_ipc.message import VlmRequest
         from vlm.worker  import VlmWorker
         from vlm.model   import VlmModel
         from vlm.backend import VlmBackend, VlmOutput, SceneType

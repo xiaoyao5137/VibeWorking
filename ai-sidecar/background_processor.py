@@ -49,6 +49,7 @@ class BackgroundProcessor:
     def _get_knowledge_extractor(self):
         """懒加载 KnowledgeExtractor V2"""
         if self._knowledge_extractor is None:
+            logger.info("开始初始化 KnowledgeExtractor V2（后台任务）")
             from knowledge.extractor_v2 import KnowledgeExtractorV2
             from embedding.model import EmbeddingModel
 
@@ -65,7 +66,8 @@ class BackgroundProcessor:
         cursor.execute("""
             SELECT c.id, c.ts, c.app_name, c.win_title, c.ocr_text, c.ax_text
             FROM captures c
-            WHERE (c.ocr_text IS NOT NULL AND c.ocr_text != '')
+            WHERE ((c.ocr_text IS NOT NULL AND c.ocr_text != '')
+               OR (c.ax_text IS NOT NULL AND c.ax_text != ''))
               AND c.knowledge_id IS NULL
               AND c.is_sensitive = 0
             ORDER BY c.ts ASC
@@ -130,19 +132,62 @@ class BackgroundProcessor:
         )
         conn.commit()
 
+    def _group_idle_minutes(self, group: list[dict], now_ms: int) -> float:
+        """计算片段距当前时间的静默分钟数"""
+        if not group:
+            return 0.0
+        return max(0.0, (now_ms - group[-1]['ts']) / 60000)
+
+    def _should_finalize_last_group(
+        self,
+        group: list[dict],
+        now_ms: int,
+        fetched_count: int,
+    ) -> tuple[bool, str]:
+        """判断最后一组是否已经足够成熟，可以落成 knowledge"""
+        if not group:
+            return False, 'empty_group'
+
+        group_size = len(group)
+        idle_minutes = self._group_idle_minutes(group, now_ms)
+        soft_window = FragmentGrouper.SOFT_SPLIT_MINUTES
+        hard_window = FragmentGrouper.HARD_SPLIT_MINUTES
+        min_group_wait = FragmentGrouper.MIN_GROUP_WAIT
+
+        if idle_minutes >= hard_window:
+            return True, 'hard_timeout'
+
+        if group_size >= min_group_wait and idle_minutes >= soft_window:
+            return True, 'idle_window_reached'
+
+        if fetched_count < self.batch_size and idle_minutes >= soft_window:
+            return True, 'tail_batch_idle'
+
+        if group_size < min_group_wait:
+            return False, 'group_too_small'
+
+        return False, 'idle_not_enough'
+
     async def _process_capture_group(self, group: list[dict]):
         """将一组 captures 合并提炼为一个 knowledge 条目"""
         try:
+            capture_ids = [c['id'] for c in group]
+            logger.info(
+                "开始片段提炼: size=%s first_id=%s last_id=%s",
+                len(group),
+                capture_ids[0] if capture_ids else None,
+                capture_ids[-1] if capture_ids else None,
+            )
             extractor = self._get_knowledge_extractor()
+            logger.info("KnowledgeExtractor 已就绪，开始执行 extract_merged")
             knowledge = extractor.extract_merged(captures=group)
 
             if not knowledge:
-                logger.debug(f"片段无价值，跳过 ({len(group)} 条 captures)")
+                logger.warning(f"片段提炼未产出 knowledge ({len(group)} 条 captures)")
                 return False
 
             conn = sqlite3.connect(self.db_path)
             knowledge_id = self._save_knowledge(conn, knowledge)
-            capture_ids = [c['id'] for c in group]
             self._mark_captures_processed(conn, capture_ids, knowledge_id)
             conn.close()
 
@@ -159,20 +204,22 @@ class BackgroundProcessor:
     async def _process_vectorization_batch(self, group: list[dict]):
         """对一组 captures 批量向量化"""
         for capture in group:
-            ocr_text = capture.get('ocr_text', '')
-            if ocr_text:
-                await self._process_vectorization(capture['id'], ocr_text)
+            text = capture.get('ocr_text') or capture.get('ax_text') or ''
+            if text:
+                await self._process_vectorization(capture['id'], text)
                 await asyncio.sleep(0.1)
+
+    async def _process_vectorization(self, capture_id: int, text: str):
         """处理单条记录的向量化"""
         try:
             worker = self._get_embed_worker()
 
             # 创建 IPC 请求格式
-            from workbuddy_ipc import IpcRequest, EmbedRequest
+            from memory_bread_ipc import IpcRequest, EmbedRequest
 
             embed_req = EmbedRequest(
                 capture_id=capture_id,
-                texts=[ocr_text]  # 注意：texts 是列表
+                texts=[text]  # 注意：texts 是列表
             )
 
             req = IpcRequest(
@@ -191,7 +238,7 @@ class BackgroundProcessor:
                     storage = get_vector_storage()
                     success = storage.store_vector(
                         capture_id=capture_id,
-                        text=ocr_text,
+                        text=text,
                         vector=vectors[0],
                         metadata={
                             "timestamp": req.ts,
@@ -202,7 +249,7 @@ class BackgroundProcessor:
                         logger.info(f"✅ 向量化+存储完成: capture_id={capture_id}")
                         return True
                     else:
-                        logger.error(f"❌ 向量存储失败: capture_id={capture_id}")
+                        logger.warning(f"⚠️ 向量存储失败，继续知识提炼: capture_id={capture_id}")
                         return False
                 else:
                     logger.warning(f"⚠️  向量化返回空结果: capture_id={capture_id}")
@@ -273,25 +320,60 @@ class BackgroundProcessor:
             if not captures:
                 return 0
 
-            # 数据太少时等待更多积累，避免切断进行中的任务
+            now_ms = int(time.time() * 1000)
+            first_capture = captures[0]
+            last_capture = captures[-1]
+
+            logger.info(
+                "📦 发现 %s 条待处理 captures，开始语义分组 (first_id=%s, last_id=%s)",
+                len(captures),
+                first_capture['id'],
+                last_capture['id'],
+            )
+
+            # 数据太少时，仅在尾巴已明显静默时才落知识，避免短尾巴永久卡住
             if len(captures) < FragmentGrouper.MIN_GROUP_WAIT:
-                logger.debug(f"captures 数量不足 ({len(captures)})，等待积累")
-                return 0
+                should_finalize, reason = self._should_finalize_last_group(captures, now_ms, len(captures))
+                idle_minutes = self._group_idle_minutes(captures, now_ms)
+                logger.info(
+                    "片段候选不足最小数量: count=%s idle=%.1fmin finalize=%s reason=%s",
+                    len(captures), idle_minutes, should_finalize, reason,
+                )
+                if not should_finalize:
+                    return 0
+                groups = [captures]
+            else:
+                # 语义分组
+                grouper = self._get_fragment_grouper()
+                groups = grouper.group_captures(captures)
 
-            logger.info(f"📦 发现 {len(captures)} 条待处理 captures，开始语义分组")
-
-            # 语义分组
-            grouper = self._get_fragment_grouper()
-            groups = grouper.group_captures(captures)
-
-            # 最后一组可能是进行中的任务，暂不处理
             groups_to_process = groups[:-1] if len(groups) > 1 else []
+            last_group = groups[-1] if groups else []
+            finalize_last_group = False
+            finalize_reason = 'no_groups'
+            last_group_idle = self._group_idle_minutes(last_group, now_ms) if last_group else 0.0
+
+            if last_group:
+                finalize_last_group, finalize_reason = self._should_finalize_last_group(
+                    last_group, now_ms, len(captures)
+                )
+                if finalize_last_group:
+                    groups_to_process.append(last_group)
+
+            logger.info(
+                "分组结果: captures=%s groups=%s process_now=%s last_group_size=%s last_group_idle=%.1fmin finalize_last=%s reason=%s",
+                len(captures),
+                len(groups),
+                len(groups_to_process),
+                len(last_group),
+                last_group_idle,
+                finalize_last_group,
+                finalize_reason,
+            )
 
             if not groups_to_process:
-                logger.debug("所有 captures 可能属于进行中的任务，等待下一轮")
+                logger.debug("所有 captures 可能仍属于进行中的任务，等待下一轮")
                 return 0
-
-            logger.info(f"分组结果: {len(captures)} captures → {len(groups)} 组，本轮处理 {len(groups_to_process)} 组")
 
             processed = 0
             for group in groups_to_process:
@@ -304,6 +386,7 @@ class BackgroundProcessor:
 
                 await asyncio.sleep(0.5)
 
+            logger.info("批处理完成: processed=%s fetched=%s", processed, len(captures))
             return processed
 
         except Exception as e:

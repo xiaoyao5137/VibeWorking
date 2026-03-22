@@ -24,7 +24,7 @@ from idle_compute import TaskType, TaskPriority, Task
 logger = logging.getLogger(__name__)
 
 # 创建 FastAPI 应用
-app = FastAPI(title="WorkBuddy 闲时计算调试界面")
+app = FastAPI(title="记忆面包闲时计算调试界面")
 
 # 全局 Dispatcher 实例
 dispatcher: Dispatcher = None
@@ -333,7 +333,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WorkBuddy 闲时计算调试界面</title>
+    <title>记忆面包闲时计算调试界面</title>
     <style>
         * {
             margin: 0;
@@ -595,7 +595,7 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="container">
-        <h1>🚀 WorkBuddy 闲时计算调试界面</h1>
+        <h1>🚀 记忆面包闲时计算调试界面</h1>
 
         <div class="grid">
             <!-- 闲时检测器 -->
@@ -1075,7 +1075,7 @@ if __name__ == "__main__":
     )
 
     print("=" * 60)
-    print("WorkBuddy 闲时计算调试界面")
+    print("记忆面包闲时计算调试界面")
     print("=" * 60)
     print("访问地址: http://localhost:8000")
     print("=" * 60)

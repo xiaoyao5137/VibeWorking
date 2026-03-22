@@ -46,7 +46,7 @@ last_capture_ts: 1772627811430
 
 ### 截图文件
 ```
-~/.workbuddy/captures/screenshots/
+~/.memory-bread/captures/screenshots/
 ├── 1772627752084.jpg (975KB)
 ├── 1772627781996.jpg (976KB)
 └── 1772627811804.jpg (975KB)
@@ -57,7 +57,7 @@ last_capture_ts: 1772627811430
 ### 当前设置
 - **采集间隔**: 30 秒
 - **截图质量**: 80 (JPEG)
-- **截图目录**: `~/.workbuddy/captures/screenshots/`
+- **截图目录**: `~/.memory-bread/captures/screenshots/`
 - **启用截图**: ✅ 是
 - **启用 AX**: ✅ 是
 
@@ -93,7 +93,7 @@ let listener_config = ListenerConfig {
 
 ## 🔍 在调试面板中查看
 
-1. 打开 WorkBuddy 应用
+1. 打开 记忆面包 应用
 2. 进入"设置"页面
 3. 点击"🔧 打开调试面板"
 4. 观察数据变化：
@@ -109,18 +109,18 @@ let listener_config = ListenerConfig {
 tail -f /private/tmp/claude-501/-Users-xianjiaqi-Documents-mygit-cy-gzdz/tasks/blsi9wrfw.output
 
 # 或者查看进程输出
-ps aux | grep workbuddy
+ps aux | grep memory-bread
 ```
 
 ### 日志内容示例
 ```
-INFO WorkBuddy Core Engine 启动中...
-INFO 初始化数据库: /Users/xianjiaqi/.workbuddy/workbuddy.db
+INFO 记忆面包 Core Engine 启动中...
+INFO 初始化数据库: /Users/xianjiaqi/.memory-bread/memory-bread.db
 INFO 启动采集引擎...
 INFO 启动事件监听器...
 INFO 启动事件监听器，采集间隔: 30 秒
 INFO CaptureEngine 已启动
-INFO WorkBuddy API 服务已启动，监听地址: http://127.0.0.1:7070
+INFO 记忆面包 API 服务已启动，监听地址: http://127.0.0.1:7070
 DEBUG 触发定时采集事件
 INFO 采集完成: id=6, app=Google Chrome
 ```
@@ -131,14 +131,14 @@ INFO 采集完成: id=6, app=Google Chrome
 
 ```bash
 # 停止所有服务
-pkill -f workbuddy
+pkill -f memory-bread
 
 # 重新编译（如果改了代码）
 cd core-engine
 cargo build --release
 
 # 启动
-./target/release/workbuddy &
+./target/release/memory-bread &
 
 # 或使用启动脚本
 cd /Users/xianjiaqi/Documents/mygit/cy/gzdz

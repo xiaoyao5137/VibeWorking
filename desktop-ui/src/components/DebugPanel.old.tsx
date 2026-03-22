@@ -130,10 +130,14 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
 
   const formatTimestamp = (ts: number) => {
     const date = new Date(ts)
-    return date.toLocaleTimeString('zh-CN', {
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit'
+      second: '2-digit',
+      hour12: false,
     })
   }
 

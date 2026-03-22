@@ -1,8 +1,8 @@
 [package]
-name        = "workbuddy-ipc"
+name        = "memory-bread-ipc"
 version     = "0.1.0"
 edition     = "2021"
-description = "WorkBuddy IPC protocol types and transport — shared between core-engine and other Rust crates"
+description = "记忆面包 IPC protocol types and transport — shared between core-engine and other Rust crates"
 
 [dependencies]
 serde      = { version = "1",   features = ["derive"] }

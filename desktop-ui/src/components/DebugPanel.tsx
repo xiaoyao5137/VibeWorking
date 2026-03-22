@@ -123,11 +123,15 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
 
   const formatTimestamp = (ts: number | undefined) => {
     if (!ts) return '无'
-    const date = new Date(ts * 1000) // 假设 ts 是秒级时间戳，需要转换为毫秒
-    return date.toLocaleTimeString('zh-CN', {
+    const date = new Date(ts)
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
+      hour12: false,
     })
   }
 

@@ -123,10 +123,14 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
 
   const formatTimestamp = (ts: number) => {
     const date = new Date(ts)
-    return date.toLocaleTimeString('zh-CN', {
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
+      hour12: false,
     })
   }
 
@@ -361,9 +365,9 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
                       }
                     >
                       <td className="px-3 py-2">{cap.id}</td>
-                      <td className="px-3 py-2">{formatTimestamp(cap.timestamp)}</td>
+                      <td className="px-3 py-2">{formatTimestamp(cap.ts)}</td>
                       <td className="px-3 py-2">{cap.app_name || '-'}</td>
-                      <td className="px-3 py-2 max-w-xs truncate">{cap.window_title || '-'}</td>
+                      <td className="px-3 py-2 max-w-xs truncate">{cap.win_title || '-'}</td>
                       <td className="px-3 py-2 text-center">
                         {cap.ax_text ? '✓' : '-'}
                       </td>
@@ -371,7 +375,7 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
                         {cap.ocr_text ? '✓' : '-'}
                       </td>
                       <td className="px-3 py-2 text-center">
-                        {cap.user_input ? '✓' : '-'}
+                        {cap.input_text ? '✓' : '-'}
                       </td>
                       <td className="px-3 py-2 text-center">
                         {vs?.vectorized ? (
@@ -409,11 +413,11 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
                   </pre>
                 </div>
               )}
-              {selectedCapture.user_input && (
+              {selectedCapture.input_text && (
                 <div>
                   <strong>用户输入:</strong>
                   <pre className="mt-1 p-2 bg-white rounded text-xs overflow-auto max-h-40">
-                    {selectedCapture.user_input}
+                    {selectedCapture.input_text}
                   </pre>
                 </div>
               )}

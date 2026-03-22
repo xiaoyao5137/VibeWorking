@@ -1,5 +1,5 @@
 /**
- * RagPanel v2 — 工作搭子面板（优化版）
+ * RagPanel v2 — 记忆面包面板（优化版）
  *
  * 改进：
  * 1. 移除收起功能（不再支持收起到 buddy 模式）
@@ -48,7 +48,7 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
       className={`rag-panel ${className}`}
       data-testid="rag-panel"
       role="dialog"
-      aria-label="工作搭子面板"
+      aria-label="记忆面包问答面板"
     >
       {/* 标题栏 */}
       <div className="rag-panel__header" data-testid="rag-panel-header">
@@ -68,8 +68,9 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
             <rect width="20" height="14" x="2" y="7" rx="2" ry="2" />
             <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
           </svg>
-          <h2 className="rag-panel__title">工作搭子</h2>
+          <h2 className="rag-panel__title">记忆面包</h2>
         </div>
+        <p className="rag-panel__subtitle">看过就会记住,记住就会理解</p>
       </div>
 
       {/* 输入区域 */}
@@ -256,7 +257,7 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
             <circle cx="20" cy="21" r=".5" />
             <circle cx="20" cy="8" r=".5" />
           </svg>
-          <p>你好！我是你的工作搭子</p>
+          <p>你好！我是记忆面包</p>
           <p className="rag-panel__empty-hint">
             问我任何工作相关的问题，我会基于你的工作记录给出答案
           </p>

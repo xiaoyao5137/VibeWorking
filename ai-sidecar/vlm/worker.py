@@ -12,8 +12,8 @@ import logging
 import os
 import time
 
-from workbuddy_ipc         import IpcRequest, IpcResponse
-from workbuddy_ipc.message import VlmResult, SceneType as IpcSceneType
+from memory_bread_ipc         import IpcRequest, IpcResponse
+from memory_bread_ipc.message import VlmResult, SceneType as IpcSceneType
 
 from .backend import SceneType
 from .model   import VlmModel

@@ -295,9 +295,12 @@ const OnboardingWizard: React.FC = () => {
             <>
               <div style={{ textAlign: 'center', marginBottom: 24 }}>
                 <div style={{ fontSize: 40, marginBottom: 12 }}>🤖</div>
-                <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>欢迎使用 WorkBuddy</div>
+                <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>欢迎使用记忆面包</div>
+                <div style={{ fontSize: 13, color: '#8E8E93', marginBottom: 10 }}>
+                  看过就会记住,记住就会理解
+                </div>
                 <div style={{ fontSize: 13, color: '#6E6E73', lineHeight: 1.6 }}>
-                  WorkBuddy 是你的本地 AI 助手，帮助你整理知识、回答问题、自动化任务。<br />
+                  记忆面包是你的本地 AI 助手，帮助你整理知识、回答问题、自动化任务。<br />
                   首先需要配置一个 AI 模型才能开始使用。
                 </div>
               </div>

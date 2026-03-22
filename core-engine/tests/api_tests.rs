@@ -19,7 +19,7 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
-use workbuddy_core::{api::AppState, storage::StorageManager};
+use memory_bread_core::{api::AppState, storage::StorageManager};
 
 // ── 辅助函数 ──────────────────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ async fn make_test_router() -> (axum::Router, tempfile::TempDir) {
     let db     = tmp.path().join("test.db");
     let sm     = StorageManager::open(&db).unwrap();
     let state  = AppState::new(sm);
-    let router = workbuddy_core::api::create_router(state);
+    let router = memory_bread_core::api::create_router(state);
     (router, tmp)
 }
 

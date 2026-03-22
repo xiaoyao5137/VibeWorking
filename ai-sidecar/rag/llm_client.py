@@ -112,7 +112,7 @@ class LLMClient:
         user_preferences: Optional[Dict[str, str]] = None,
     ) -> str:
         """构建系统提示词"""
-        base_prompt = """你是 WorkBuddy 工作搭子，一个智能的工作助手。
+        base_prompt = """你是记忆面包，一个智能的工作助手。
 
 你的职责：
 1. 根据用户的工作记录（屏幕截图、文本记录）回答问题

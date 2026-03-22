@@ -1,5 +1,5 @@
 """
-WorkBuddy IPC 协议 Python 包
+记忆面包 IPC 协议 Python 包
 
 供 AI Sidecar 使用，包含：
 - message.py : Pydantic 消息类型（与 Rust 端 serde 类型严格对应）

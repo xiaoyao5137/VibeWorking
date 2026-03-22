@@ -1,7 +1,7 @@
 """
 闲时计算系统集成示例
 
-演示如何将闲时计算系统集成到 WorkBuddy AI Sidecar 中。
+演示如何将闲时计算系统集成到记忆面包 AI Sidecar 中。
 """
 
 import asyncio
@@ -91,7 +91,7 @@ def load_vlm_model():
 async def main():
     """主程序"""
     logger.info("=" * 60)
-    logger.info("WorkBuddy 闲时计算系统启动")
+    logger.info("记忆面包闲时计算系统启动")
     logger.info("=" * 60)
 
     # 1. 创建闲时检测器

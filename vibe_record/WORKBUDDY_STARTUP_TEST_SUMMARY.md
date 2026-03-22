@@ -1,5 +1,5 @@
 ╔════════════════════════════════════════════════════════════╗
-║           WorkBuddy 启动测试总结                          ║
+║           记忆面包 启动测试总结                          ║
 ╚════════════════════════════════════════════════════════════╝
 
 ## ✅ 已完成的工作
@@ -198,7 +198,7 @@ import glob
 
 ocr = PaddleOCR(use_angle_cls=True, lang='ch', use_gpu=False, show_log=False)
 
-screenshots = sorted(glob.glob('/Users/xianjiaqi/.workbuddy/captures/screenshots/*.jpg'))
+screenshots = sorted(glob.glob('/Users/xianjiaqi/.memory-bread/captures/screenshots/*.jpg'))
 latest = screenshots[-1]
 
 print(f"测试截图: {latest}")

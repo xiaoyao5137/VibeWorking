@@ -28,7 +28,7 @@ shared/ipc-protocol/
 
 | 平台 | 方式 | 地址 |
 |------|------|------|
-| macOS / Linux | Unix Domain Socket | `/tmp/workbuddy-sidecar.sock` |
+| macOS / Linux | Unix Domain Socket | `/tmp/memory-bread-sidecar.sock` |
 | Windows | TCP Loopback | `127.0.0.1:17071` |
 
 帧格式：`[4字节大端 uint32 消息长度] + [N字节 UTF-8 JSON]`
@@ -48,9 +48,9 @@ shared/ipc-protocol/
 
 ```rust
 // 在 core-engine/Cargo.toml 中添加：
-// workbuddy-ipc = { path = "../../shared/ipc-protocol/rust" }
+// memory-bread-ipc = { path = "../../shared/ipc-protocol/rust" }
 
-use workbuddy_ipc::{IpcClient, TaskRequest, OcrRequest};
+use memory_bread_ipc::{IpcClient, TaskRequest, OcrRequest};
 
 // 等待 Sidecar 就绪（自动 ping 握手，最多等 30s）
 let mut client = IpcClient::wait_for_sidecar().await?;
@@ -72,8 +72,8 @@ if let Some(ResultPayload::Ocr(result)) = resp.result {
 # ai-sidecar/main.py
 
 import asyncio
-from workbuddy_ipc import IpcServer, IpcRequest, IpcResponse
-from workbuddy_ipc import OcrResult, PingResult
+from memory_bread_ipc import IpcServer, IpcRequest, IpcResponse
+from memory_bread_ipc import OcrResult, PingResult
 
 async def dispatch(req: IpcRequest) -> IpcResponse:
     import time

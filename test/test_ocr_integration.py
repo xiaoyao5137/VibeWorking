@@ -16,10 +16,10 @@ import uuid
 # 添加 ai-sidecar 到 Python 路径
 sys.path.insert(0, '/Users/xianjiaqi/Documents/mygit/cy/gzdz/ai-sidecar')
 
-from workbuddy_ipc import IpcRequest, IpcResponse, OcrRequest
+from memory_bread_ipc import IpcRequest, IpcResponse, OcrRequest
 
-SOCKET_PATH = "/tmp/workbuddy-sidecar.sock"
-SCREENSHOT_DIR = os.path.expanduser("~/.workbuddy/captures/screenshots")
+SOCKET_PATH = "/tmp/memory-bread-sidecar.sock"
+SCREENSHOT_DIR = os.path.expanduser("~/.memory-bread/captures/screenshots")
 
 
 async def send_frame(writer: asyncio.StreamWriter, data: dict):
@@ -128,6 +128,6 @@ async def test_ocr_via_ipc():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("WorkBuddy OCR 集成测试")
+    print("记忆面包 OCR 集成测试")
     print("=" * 60)
     asyncio.run(test_ocr_via_ipc())

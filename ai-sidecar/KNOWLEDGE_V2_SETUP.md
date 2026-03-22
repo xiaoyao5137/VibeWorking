@@ -1,4 +1,4 @@
-# WorkBuddy 知识提炼系统 V2 - 安装指南
+# 记忆面包 知识提炼系统 V2 - 安装指南
 
 ## 📋 改进概述
 
@@ -63,7 +63,7 @@ python startup_checks.py
 ### 5. 清空旧数据（可选）
 ```bash
 # 删除低质量的知识条目
-sqlite3 ~/.workbuddy/workbuddy.db << 'EOF'
+sqlite3 ~/.memory-bread/memory-bread.db << 'EOF'
 DELETE FROM knowledge_entries;
 EOF
 ```
@@ -76,7 +76,7 @@ pkill -f "python.*main.py"
 # 启动新进程
 cd /Users/xianjiaqi/Documents/mygit/cy/gzdz/ai-sidecar
 source .venv/bin/activate
-python main.py > ~/.workbuddy/logs/sidecar.log 2>&1 &
+python main.py > ~/.memory-bread/logs/sidecar.log 2>&1 &
 ```
 
 ## 📊 数据库变更

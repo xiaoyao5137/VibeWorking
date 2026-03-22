@@ -1,6 +1,6 @@
 # RAG 服务模块
 
-WorkBuddy 的检索增强生成（RAG）服务，提供智能问答功能。
+记忆面包 的检索增强生成（RAG）服务，提供智能问答功能。
 
 ## 架构
 
@@ -95,7 +95,7 @@ pip install qdrant-client fastapi uvicorn sentence-transformers
 
 ### 环境变量
 
-- `WORKBUDDY_DB_PATH`: SQLite 数据库路径（默认: `~/.workbuddy/workbuddy.db`）
+- `WORKBUDDY_DB_PATH`: SQLite 数据库路径（默认: `~/.memory-bread/memory-bread.db`）
 - `QDRANT_HOST`: Qdrant 服务地址（默认: `localhost`）
 - `QDRANT_PORT`: Qdrant 服务端口（默认: `6333`）
 

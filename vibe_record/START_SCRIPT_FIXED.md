@@ -85,8 +85,8 @@ Did you want a JSX fragment <>...</>? (488:8)
 ### 采集数据
 - 总采集数: 38 条（持续增长中）
 - 采集间隔: 30 秒
-- 截图保存: ~/.workbuddy/captures/screenshots/
-- 数据库: ~/.workbuddy/workbuddy.db
+- 截图保存: ~/.memory-bread/captures/screenshots/
+- 数据库: ~/.memory-bread/memory-bread.db
 
 ## 📋 使用指南
 
@@ -109,17 +109,17 @@ cd /Users/xianjiaqi/Documents/mygit/cy/gzdz
 ### 查看日志
 ```bash
 # AI Sidecar 日志
-tail -f ~/.workbuddy/logs/sidecar.log
+tail -f ~/.memory-bread/logs/sidecar.log
 
 # Core Engine 日志
-tail -f ~/.workbuddy/logs/core.log
+tail -f ~/.memory-bread/logs/core.log
 
 # 启动日志
 tail -f /tmp/start-test.log
 ```
 
 ### 查看调试面板
-1. 打开 WorkBuddy 应用窗口
+1. 打开 记忆面包 应用窗口
 2. 进入设置页面
 3. 点击"🔧 打开调试面板"
 4. 查看实时数据和采集记录
@@ -141,7 +141,7 @@ watch -n 5 'curl -s http://localhost:7070/api/stats | python3 -m json.tool'
 
 ### 3. 验证截图
 ```bash
-ls -lht ~/.workbuddy/captures/screenshots/ | head -10
+ls -lht ~/.memory-bread/captures/screenshots/ | head -10
 ```
 
 ## 📝 已修复的问题

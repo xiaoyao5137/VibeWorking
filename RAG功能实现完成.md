@@ -7,11 +7,11 @@
 
 ### 1. ✅ 默认打开 RAG 问答页面
 
-**问题**：WorkBuddy 首页空白
+**问题**：记忆面包 首页空白
 
 **解决方案**：
 - 修改 `useAppStore.ts` 中的默认窗口模式从 `'buddy'` 改为 `'rag'`
-- 现在打开 WorkBuddy 会直接显示"工作搭子"问答界面
+- 现在打开 记忆面包 会直接显示"记忆面包"问答界面
 
 **修改文件**：
 - `desktop-ui/src/store/useAppStore.ts`
@@ -183,7 +183,7 @@ curl -X POST http://localhost:7070/query \
 
 ## 使用方法
 
-1. **启动 WorkBuddy**
+1. **启动 记忆面包**
    - 所有服务已自动启动
    - Desktop UI 会自动打开 RAG 问答页面
 

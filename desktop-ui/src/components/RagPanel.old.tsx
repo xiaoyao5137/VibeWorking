@@ -41,11 +41,12 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
       className={`rag-panel ${className}`}
       data-testid="rag-panel"
       role="dialog"
-      aria-label="知识唤醒面板"
+      aria-label="记忆面包问答面板"
     >
       {/* 标题栏 */}
       <div className="rag-panel__header" data-testid="rag-panel-header">
-        <h2 className="rag-panel__title">工作搭子</h2>
+        <h2 className="rag-panel__title">记忆面包</h2>
+        <p className="rag-panel__subtitle">看过就会记住,记住就会理解</p>
         <button
           className="rag-panel__close"
           data-testid="rag-panel-close"
