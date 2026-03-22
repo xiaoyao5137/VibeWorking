@@ -13,9 +13,9 @@
     "windows": [
       {
         "title": "记忆面包",
-        "width": 800,
+        "width": 1220,
         "height": 900,
-        "minWidth": 600,
+        "minWidth": 960,
         "minHeight": 700,
         "resizable": true,
         "fullscreen": false,

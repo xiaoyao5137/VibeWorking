@@ -94,29 +94,31 @@ class BackgroundProcessor:
 
     def _save_knowledge(self, conn: sqlite3.Connection, knowledge: dict) -> int:
         """保存 knowledge 条目，返回新插入的 id"""
+        capture_ids_raw = knowledge.get('capture_ids', '[]')
+        try:
+            capture_ids = json.loads(capture_ids_raw) if capture_ids_raw else []
+        except json.JSONDecodeError:
+            capture_ids = []
+
+        primary_capture_id = capture_ids[0] if capture_ids else knowledge.get('capture_id')
+        if primary_capture_id is None:
+            raise ValueError('knowledge 缺少 capture_id/capture_ids，无法保存')
+
+        overview = knowledge.get('overview') or knowledge.get('summary', '')
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO knowledge_entries
-            (capture_id, summary, overview, details, entities, category, importance,
-             occurrence_count, capture_ids, start_time, end_time, duration_minutes,
-             frag_app_name, frag_win_title)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (capture_id, summary, overview, details, entities, category, importance, occurrence_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            # capture_id 用 capture_ids 中的第一个（向后兼容）
-            json.loads(knowledge.get('capture_ids', '[0]'))[0],
-            knowledge.get('overview', ''),   # summary 字段保持向后兼容
-            knowledge.get('overview', ''),
+            primary_capture_id,
+            overview,
+            overview,
             knowledge.get('details', ''),
             knowledge.get('entities', '[]'),
             knowledge.get('category', '其他'),
             knowledge.get('importance', 3),
             knowledge.get('occurrence_count', 1),
-            knowledge.get('capture_ids'),
-            knowledge.get('start_time'),
-            knowledge.get('end_time'),
-            knowledge.get('duration_minutes'),
-            knowledge.get('frag_app_name'),
-            knowledge.get('frag_win_title'),
         ))
         conn.commit()
         return cursor.lastrowid

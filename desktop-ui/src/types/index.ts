@@ -85,12 +85,18 @@ export interface MonitorOverview {
     trend:         { date: string; tokens: number; calls: number }[]
   }
   capture_flow: {
-    today_count:    number
-    period_count:   number
-    knowledge_rate: number
-    by_hour:        { hour: number; count: number }[]
-    by_app:         { app: string; count: number }[]
-    recent:         { id: number; ts: number; app_name: string; win_title: string }[]
+    today_count:              number
+    period_count:             number
+    eligible_count:           number
+    vectorized_count:         number
+    vectorization_rate:       number
+    knowledge_generated_count:number
+    knowledge_generation_rate:number
+    knowledge_linked_count:   number
+    knowledge_rate:           number
+    by_hour:                  { hour: number; count: number }[]
+    by_app:                   { app: string; count: number }[]
+    recent:                   { id: number; ts: number; app_name: string; win_title: string }[]
   }
   rag_sessions: {
     today_count:    number

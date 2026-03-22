@@ -143,7 +143,7 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
     <div className={`min-h-screen bg-gray-50 p-6 ${className}`} data-testid="debug-panel">
       {/* 标题栏 */}
       <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             {/* 调试图标 - wrench.and.screwdriver */}
             <svg
@@ -162,8 +162,8 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
             <h1 className="text-2xl font-bold text-gray-800">调试面板</h1>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="text-xs text-gray-500 max-w-xs leading-5">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="text-xs text-gray-500 leading-5 sm:max-w-xs">
               这里的 1/2/5/10 秒仅控制调试面板自动刷新，不会修改后台采集频率。
             </div>
             <label className="flex items-center gap-2 text-sm">
@@ -281,7 +281,7 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
             <h2 className="text-xl font-semibold text-gray-800">系统统计</h2>
           </div>
 
-          <div className="grid grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
             <div className="bg-blue-50 rounded p-4">
               <div className="text-sm text-gray-600 mb-1">总采集数</div>
               <div className="text-2xl font-bold text-blue-600">{stats.total_captures}</div>

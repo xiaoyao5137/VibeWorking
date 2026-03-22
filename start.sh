@@ -41,6 +41,10 @@ MODEL_API_LOG="$LOG_DIR/model_api.log"
 CORE_LOG="$LOG_DIR/core.log"
 UI_LOG="$LOG_DIR/ui.log"
 
+CORE_PORT=7070
+MODEL_API_PORT=7071
+UI_PORT=1420
+
 # 打印带颜色的消息
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -70,6 +74,67 @@ is_running() {
     return 1
 }
 
+cleanup_port() {
+    local port=$1
+    local label=$2
+    local pids=$(lsof -ti :"$port" 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+        log_info "清理占用 ${port} 端口的进程（${label}）: $pids"
+        echo "$pids" | xargs kill 2>/dev/null || true
+        sleep 1
+        pids=$(lsof -ti :"$port" 2>/dev/null || true)
+        if [ -n "$pids" ]; then
+            echo "$pids" | xargs kill -9 2>/dev/null || true
+        fi
+    fi
+}
+
+wait_for_http() {
+    local url=$1
+    local label=$2
+    local retries=${3:-20}
+    local delay=${4:-1}
+
+    for ((i=1; i<=retries; i++)); do
+        if curl -fsS "$url" > /dev/null 2>&1; then
+            log_success "${label} 健康检查通过"
+            return 0
+        fi
+        sleep "$delay"
+    done
+
+    log_warn "${label} 健康检查失败，请查看日志"
+    return 1
+}
+
+show_status() {
+    echo ""
+    if is_running "$SIDECAR_PID_FILE"; then
+        log_success "AI Sidecar: 运行中 (PID: $(cat "$SIDECAR_PID_FILE"))"
+    else
+        log_error "AI Sidecar: 未运行"
+    fi
+
+    if is_running "$MODEL_API_PID_FILE"; then
+        log_success "Model API: 运行中 (PID: $(cat "$MODEL_API_PID_FILE"), Port: ${MODEL_API_PORT})"
+    else
+        log_error "Model API: 未运行"
+    fi
+
+    if is_running "$CORE_PID_FILE"; then
+        log_success "Core Engine: 运行中 (PID: $(cat "$CORE_PID_FILE"), Port: ${CORE_PORT})"
+    else
+        log_error "Core Engine: 未运行"
+    fi
+
+    if is_running "$UI_PID_FILE"; then
+        log_success "Desktop UI: 运行中 (PID: $(cat "$UI_PID_FILE"), Port: ${UI_PORT})"
+    else
+        log_error "Desktop UI: 未运行"
+    fi
+    echo ""
+}
+
 # 停止所有服务
 stop_all() {
     log_info "停止所有服务..."
@@ -89,19 +154,7 @@ stop_all() {
         rm -f "$UI_PID_FILE"
     fi
 
-    # 清理占用 1420 端口的进程（Vite 开发服务器）
-    local vite_pids=$(lsof -ti :1420 2>/dev/null)
-    if [ -n "$vite_pids" ]; then
-        log_info "清理占用 1420 端口的进程 (PID: $vite_pids)"
-        # 先尝试优雅关闭
-        echo "$vite_pids" | xargs kill 2>/dev/null || true
-        sleep 1
-        # 如果还在运行，强制杀掉
-        vite_pids=$(lsof -ti :1420 2>/dev/null)
-        if [ -n "$vite_pids" ]; then
-            echo "$vite_pids" | xargs kill -9 2>/dev/null || true
-        fi
-    fi
+    cleanup_port "$UI_PORT" "Desktop UI / Vite"
 
     # 停止 Core Engine
     if is_running "$CORE_PID_FILE"; then
@@ -114,6 +167,8 @@ stop_all() {
         fi
         rm -f "$CORE_PID_FILE"
     fi
+
+    cleanup_port "$CORE_PORT" "Core Engine"
 
     # 停止 AI Sidecar
     if is_running "$SIDECAR_PID_FILE"; then
@@ -138,6 +193,8 @@ stop_all() {
         fi
         rm -f "$MODEL_API_PID_FILE"
     fi
+
+    cleanup_port "$MODEL_API_PORT" "Model API"
 
     log_success "所有服务已停止"
 }
@@ -216,19 +273,14 @@ start_core() {
     nohup ./target/release/memory-bread > "$CORE_LOG" 2>&1 &
     echo $! > "$CORE_PID_FILE"
 
-    log_success "Core Engine 已启动 (PID: $(cat $CORE_PID_FILE))"
+    log_success "Core Engine 已启动 (PID: $(cat "$CORE_PID_FILE"))"
     log_info "日志文件: $CORE_LOG"
 
     # 等待 Core Engine 启动
     log_info "等待 Core Engine 初始化..."
     sleep 3
 
-    # 健康检查
-    if curl -s http://localhost:7070/health > /dev/null 2>&1; then
-        log_success "Core Engine 健康检查通过"
-    else
-        log_warn "Core Engine 健康检查失败，请查看日志"
-    fi
+    wait_for_http "http://localhost:${CORE_PORT}/health" "Core Engine"
 }
 
 # 启动 Desktop UI
@@ -246,9 +298,21 @@ start_ui() {
     # 确保 Rust 在 PATH 中
     export PATH="$HOME/.cargo/bin:$PATH"
 
-    # 启动 Tauri 开发服务器（前台运行）
+    # 启动 Tauri 开发服务器（后台运行）
     log_info "启动 Tauri 开发服务器..."
-    npm run tauri:dev
+    nohup npm run tauri:dev > "$UI_LOG" 2>&1 &
+    echo $! > "$UI_PID_FILE"
+
+    log_success "Desktop UI 已启动 (PID: $(cat "$UI_PID_FILE"))"
+    log_info "日志文件: $UI_LOG"
+    log_info "等待 Desktop UI 初始化..."
+    sleep 5
+
+    if curl -fsS "http://localhost:${UI_PORT}" > /dev/null 2>&1; then
+        log_success "Desktop UI / Vite 健康检查通过"
+    else
+        log_warn "Desktop UI / Vite 健康检查失败，请查看日志"
+    fi
 }
 
 # 主函数
@@ -263,8 +327,8 @@ main() {
     case "${1:-start}" in
         start)
             # 检查是否已经在运行
-            if is_running "$SIDECAR_PID_FILE" || is_running "$CORE_PID_FILE"; then
-                log_warn "检测到服务已在运行，先停止现有服务..."
+            if is_running "$SIDECAR_PID_FILE" || is_running "$CORE_PID_FILE" || is_running "$UI_PID_FILE"; then
+                log_warn "检测到现有组件仍在运行，先执行全组件 stop 以避免脏状态..."
                 stop_all
                 sleep 2
             fi
@@ -273,38 +337,24 @@ main() {
             start_sidecar
             start_core
             start_ui
+            show_status
             ;;
         stop)
             stop_all
             ;;
         restart)
+            log_info "执行全组件 restart（AI Sidecar → Core Engine → Desktop UI）..."
             stop_all
             sleep 2
             check_dependencies
             start_sidecar
             start_core
             start_ui
+            show_status
+            log_info "联调测试前请优先使用 ./start.sh restart，避免旧进程状态污染测试结果"
             ;;
         status)
-            echo ""
-            if is_running "$SIDECAR_PID_FILE"; then
-                log_success "AI Sidecar: 运行中 (PID: $(cat $SIDECAR_PID_FILE))"
-            else
-                log_error "AI Sidecar: 未运行"
-            fi
-
-            if is_running "$CORE_PID_FILE"; then
-                log_success "Core Engine: 运行中 (PID: $(cat $CORE_PID_FILE))"
-            else
-                log_error "Core Engine: 未运行"
-            fi
-
-            if is_running "$UI_PID_FILE"; then
-                log_success "Desktop UI: 运行中 (PID: $(cat $UI_PID_FILE))"
-            else
-                log_error "Desktop UI: 未运行"
-            fi
-            echo ""
+            show_status
             ;;
         logs)
             log_info "查看日志 (Ctrl+C 退出)..."

@@ -22,9 +22,11 @@ use super::error::StorageError;
 
 /// 按版本顺序排列的迁移列表：(版本号, SQL)
 static MIGRATIONS: &[(&str, &str)] = &[
-    ("001_init",          include_str!("migrations/001_init.sql")),
-    ("002_seed_defaults", include_str!("migrations/002_seed_defaults.sql")),
-    ("003_views",         include_str!("migrations/003_views.sql")),
+    ("001_init",                  include_str!("migrations/001_init.sql")),
+    ("002_seed_defaults",         include_str!("migrations/002_seed_defaults.sql")),
+    ("003_views",                 include_str!("migrations/003_views.sql")),
+    ("004_captures_knowledge_id", include_str!("../../../shared/db-schema/migrations/004_captures_knowledge_id.sql")),
+    ("005_monitor_tables",        include_str!("../../../shared/db-schema/migrations/005_monitor_tables.sql")),
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

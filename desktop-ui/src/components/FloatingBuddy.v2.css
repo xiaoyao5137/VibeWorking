@@ -3,7 +3,7 @@
    ======================================== */
 
 .floating-buddy-v2 {
-  width: 220px;
+  width: clamp(220px, 22vw, 256px);
   min-width: 220px;
   height: 100%;
   padding: 24px 16px;
@@ -107,8 +107,9 @@
 
 .buddy-action-btn__label {
   font-size: 14px;
-  line-height: 1.2;
-  white-space: nowrap;
+  line-height: 1.3;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 @media (prefers-color-scheme: dark) {

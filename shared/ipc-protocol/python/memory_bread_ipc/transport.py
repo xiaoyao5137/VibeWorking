@@ -170,7 +170,11 @@ class IpcServer:
 
                 # 分派给业务处理函数
                 resp = await self._safe_dispatch(req)
-                await FrameCodec.write_frame(writer, resp)
+                try:
+                    await FrameCodec.write_frame(writer, resp)
+                except (ConnectionResetError, BrokenPipeError) as e:
+                    logger.debug("连接在响应写回前已断开: %s (%s)", peer, e)
+                    break
 
         finally:
             writer.close()

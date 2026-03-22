@@ -77,12 +77,18 @@ pub struct DayTrend {
 
 #[derive(Debug, Serialize)]
 pub struct CaptureFlow {
-    pub today_count:    i64,
-    pub period_count:   i64,
-    pub knowledge_rate: f64,   // 已提炼比例
-    pub by_hour:        Vec<HourCount>,
-    pub by_app:         Vec<AppCount>,
-    pub recent:         Vec<CaptureItem>,
+    pub today_count:                i64,
+    pub period_count:               i64,
+    pub eligible_count:             i64,
+    pub vectorized_count:           i64,
+    pub vectorization_rate:         f64,
+    pub knowledge_generated_count:  i64,
+    pub knowledge_generation_rate:  f64,
+    pub knowledge_linked_count:     i64,
+    pub knowledge_rate:             f64,
+    pub by_hour:                    Vec<HourCount>,
+    pub by_app:                     Vec<AppCount>,
+    pub recent:                     Vec<CaptureItem>,
 }
 
 #[derive(Debug, Serialize)]
@@ -220,14 +226,57 @@ pub async fn monitor_overview(
             |r| r.get(0),
         ).unwrap_or(0);
 
-        let knowledge_count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM captures WHERE ts >= ?1 AND knowledge_id IS NOT NULL",
+        let eligible_count: i64 = conn.query_row(
+            "SELECT COUNT(*)
+             FROM captures
+             WHERE ts >= ?1
+               AND is_sensitive = 0
+               AND ((ocr_text IS NOT NULL AND ocr_text != '')
+                 OR (ax_text IS NOT NULL AND ax_text != ''))",
             rusqlite::params![from_ms],
             |r| r.get(0),
         ).unwrap_or(0);
 
-        let knowledge_rate = if period_captures > 0 {
-            knowledge_count as f64 / period_captures as f64
+        let vectorized_count: i64 = conn.query_row(
+            "SELECT COUNT(DISTINCT c.id)
+             FROM captures c
+             INNER JOIN vector_index v ON v.capture_id = c.id
+             WHERE c.ts >= ?1
+               AND c.is_sensitive = 0
+               AND ((c.ocr_text IS NOT NULL AND c.ocr_text != '')
+                 OR (c.ax_text IS NOT NULL AND c.ax_text != ''))",
+            rusqlite::params![from_ms],
+            |r| r.get(0),
+        ).unwrap_or(0);
+
+        let knowledge_generated_count: i64 = conn.query_row(
+            "SELECT COUNT(*)
+             FROM knowledge_entries ke
+             INNER JOIN captures c ON c.id = ke.capture_id
+             WHERE c.ts >= ?1",
+            rusqlite::params![from_ms],
+            |r| r.get(0),
+        ).unwrap_or(0);
+
+        let knowledge_linked_count: i64 = conn.query_row(
+            "SELECT COUNT(*)
+             FROM captures
+             WHERE ts >= ?1
+               AND knowledge_id IS NOT NULL",
+            rusqlite::params![from_ms],
+            |r| r.get(0),
+        ).unwrap_or(0);
+
+        let vectorization_rate = if eligible_count > 0 {
+            vectorized_count as f64 / eligible_count as f64
+        } else { 0.0 };
+
+        let knowledge_generation_rate = if eligible_count > 0 {
+            knowledge_generated_count as f64 / eligible_count as f64
+        } else { 0.0 };
+
+        let knowledge_rate = if eligible_count > 0 {
+            knowledge_linked_count as f64 / eligible_count as f64
         } else { 0.0 };
 
         // 今日按小时分布
@@ -364,6 +413,12 @@ pub async fn monitor_overview(
             capture_flow: CaptureFlow {
                 today_count: today_captures,
                 period_count: period_captures,
+                eligible_count,
+                vectorized_count,
+                vectorization_rate,
+                knowledge_generated_count,
+                knowledge_generation_rate,
+                knowledge_linked_count,
                 knowledge_rate,
                 by_hour,
                 by_app,

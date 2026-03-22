@@ -21,7 +21,7 @@ body {
 #root {
   width: 100vw;
   height: 100vh;
-  overflow: auto; /* 允许滚动 */
+  overflow: hidden;
 }
 
 /* App 容器 */
@@ -39,6 +39,7 @@ body {
   min-width: 0;
   height: 100%;
   overflow: auto;
+  padding: 0;
 }
 
 /* ========================================
@@ -155,21 +156,22 @@ body {
   justify-content: space-between;
   align-items: center;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  flex-wrap: nowrap; /* 防止标题和图标换行 */
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .rag-panel__title-group {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .rag-panel__title {
   font-size: 24px;
   font-weight: 600;
   margin: 0;
-  white-space: nowrap;
 }
 
 .rag-panel__close {
@@ -579,6 +581,8 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
@@ -586,6 +590,7 @@ body {
   font-size: 24px;
   font-weight: 600;
   margin: 0;
+  min-width: 0;
 }
 
 .knowledge-panel__refresh {
@@ -614,12 +619,14 @@ body {
   border-bottom: 1px solid #e2e8f0;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 16px;
 }
 
 .knowledge-panel__filters {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -648,16 +655,21 @@ body {
 .knowledge-panel__search {
   display: flex;
   gap: 8px;
+  flex: 1;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: min(100%, 320px);
 }
 
 .search-input {
+  flex: 1 1 240px;
   padding: 8px 16px;
   border: 2px solid #e2e8f0;
   border-radius: 8px;
   font-size: 14px;
   outline: none;
   transition: all 0.2s ease;
-  min-width: 200px;
+  min-width: 0;
 }
 
 .search-input:focus {
@@ -723,6 +735,8 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 12px;
 }
 
@@ -765,6 +779,8 @@ body {
 }
 
 .knowledge-item__summary {
+  flex: 1 1 260px;
+  min-width: 0;
   font-size: 15px;
   line-height: 1.6;
   color: #4a5568;

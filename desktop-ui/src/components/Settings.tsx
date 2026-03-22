@@ -20,6 +20,7 @@ interface SettingsProps {
 
 const Settings: React.FC<SettingsProps> = ({ className = '' }) => {
   const CAPTURE_INTERVAL_KEY = 'privacy.capture_interval_sec'
+  const DEFAULT_API_BASE = 'http://localhost:7070'
 
   const {
     apiBaseUrl,
@@ -54,10 +55,31 @@ const Settings: React.FC<SettingsProps> = ({ className = '' }) => {
   }, [fetchPrefs])
 
   const handleSaveApiUrl = useCallback(() => {
-    setApiBaseUrl(apiUrlInput.trim())
-    setSaveMsg('API 地址已更新')
-    setTimeout(() => setSaveMsg(null), 2000)
-  }, [apiUrlInput, setApiBaseUrl])
+    const trimmed = apiUrlInput.trim()
+
+    if (!trimmed) {
+      setApiBaseUrl(DEFAULT_API_BASE)
+      setError(null)
+      setApiUrlInput(DEFAULT_API_BASE)
+      setSaveMsg('API 地址已恢复默认值')
+      setTimeout(() => setSaveMsg(null), 2000)
+      return
+    }
+
+    try {
+      const url = new URL(trimmed)
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new Error('仅支持 http/https 地址')
+      }
+      setApiBaseUrl(url.toString().replace(/\/$/, ''))
+      setError(null)
+      setSaveMsg('API 地址已更新')
+      setTimeout(() => setSaveMsg(null), 2000)
+    } catch {
+      setError('API 地址格式无效，请输入完整的 http:// 或 https:// 地址')
+      setSaveMsg(null)
+    }
+  }, [DEFAULT_API_BASE, apiUrlInput, setApiBaseUrl])
 
   const handlePrefChange = useCallback(
     async (key: string, value: string) => {

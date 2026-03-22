@@ -17,6 +17,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   padding: 24px;
   background: linear-gradient(135deg, #007AFF 0%, #0051D5 100%);
   color: white;
@@ -27,6 +28,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 
 .settings-v2__title {
@@ -61,7 +63,7 @@
 /* 内容区域 */
 .settings-v2__content {
   padding: 24px;
-  max-width: 800px;
+  max-width: 1080px;
   margin: 0 auto;
 }
 
@@ -153,10 +155,12 @@
 .settings-v2__input-group {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .settings-v2__input {
-  flex: 1;
+  flex: 1 1 320px;
+  min-width: 0;
   padding: 10px 12px;
   font-size: 14px;
   border: 1px solid rgba(0, 0, 0, 0.15);
@@ -336,6 +340,53 @@
   color: #6E6E73;
   margin: 12px 0 0 0;
   line-height: 1.5;
+}
+
+@media (max-width: 960px) {
+  .settings-v2__content {
+    padding: 20px;
+  }
+
+  .settings-v2__card {
+    padding: 20px;
+  }
+}
+
+@media (max-width: 720px) {
+  .settings-v2__header {
+    padding: 20px;
+    align-items: flex-start;
+  }
+
+  .settings-v2__title-group {
+    gap: 10px;
+  }
+
+  .settings-v2__content {
+    padding: 16px;
+  }
+
+  .settings-v2__card {
+    padding: 16px;
+  }
+
+  .settings-v2__card-header {
+    gap: 12px;
+  }
+
+  .settings-v2__input-group {
+    flex-direction: column;
+  }
+
+  .settings-v2__btn {
+    justify-content: center;
+  }
+
+  .settings-v2__version-item {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
 }
 
 /* 深色模式 */

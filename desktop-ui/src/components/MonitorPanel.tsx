@@ -4,6 +4,43 @@ import { useAppStore } from '../store/useAppStore'
 
 const API = 'http://localhost:7070'
 
+const EMPTY_OVERVIEW: MonitorOverview = {
+  token_usage: {
+    total_period: 0,
+    total_today: 0,
+    by_model: [],
+    by_caller: [],
+    trend: [],
+  },
+  capture_flow: {
+    today_count: 0,
+    period_count: 0,
+    eligible_count: 0,
+    vectorized_count: 0,
+    vectorization_rate: 0,
+    knowledge_generated_count: 0,
+    knowledge_generation_rate: 0,
+    knowledge_linked_count: 0,
+    knowledge_rate: 0,
+    by_hour: [],
+    by_app: [],
+    recent: [],
+  },
+  rag_sessions: {
+    today_count: 0,
+    period_count: 0,
+    avg_latency_ms: 0,
+    recent: [],
+  },
+  task_executions: {
+    total: 0,
+    success: 0,
+    failed: 0,
+    success_rate: 0,
+    recent: [],
+  },
+}
+
 const CALLER_LABELS: Record<string, string> = {
   rag: 'RAG 问答', task: '定时任务', knowledge: '知识提炼',
 }
@@ -210,19 +247,44 @@ const StatCard: React.FC<{
 
 // ── 总览内容 ─────────────────────────────────────────────────────────────────
 const OverviewContent: React.FC<{ data: MonitorOverview }> = ({ data }) => {
-  const { token_usage, capture_flow, rag_sessions, task_executions } = data
+  const token_usage = {
+    ...EMPTY_OVERVIEW.token_usage,
+    ...(data?.token_usage ?? {}),
+    by_model: data?.token_usage?.by_model ?? [],
+    by_caller: data?.token_usage?.by_caller ?? [],
+    trend: data?.token_usage?.trend ?? [],
+  }
+  const capture_flow = {
+    ...EMPTY_OVERVIEW.capture_flow,
+    ...(data?.capture_flow ?? {}),
+    by_hour: data?.capture_flow?.by_hour ?? [],
+    by_app: data?.capture_flow?.by_app ?? [],
+    recent: data?.capture_flow?.recent ?? [],
+  }
+  const rag_sessions = {
+    ...EMPTY_OVERVIEW.rag_sessions,
+    ...(data?.rag_sessions ?? {}),
+    recent: data?.rag_sessions?.recent ?? [],
+  }
+  const task_executions = {
+    ...EMPTY_OVERVIEW.task_executions,
+    ...(data?.task_executions ?? {}),
+    recent: data?.task_executions?.recent ?? [],
+  }
   const trendValues = token_usage.trend.map(t => t.tokens)
   return (
     <>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <StatCard label="Token 用量" value={fmt(token_usage.total_period)}
           sub={`今日 ${fmt(token_usage.total_today)}`} color="#007AFF" />
         <StatCard label="采集记录" value={fmt(capture_flow.period_count)}
-          sub={`今日 ${capture_flow.today_count}`} color="#34C759" />
-        <StatCard label="RAG 问答" value={String(rag_sessions.period_count)}
-          sub={`均 ${fmtMs(rag_sessions.avg_latency_ms)}`} color="#AF52DE" />
-        <StatCard label="任务成功率" value={`${(task_executions.success_rate * 100).toFixed(0)}%`}
-          sub={`共 ${task_executions.total} 次`} color="#FF9500" />
+          sub={`可处理 ${fmt(capture_flow.eligible_count)} · 今日 ${capture_flow.today_count}`} color="#34C759" />
+        <StatCard label="向量化率" value={`${(capture_flow.vectorization_rate * 100).toFixed(0)}%`}
+          sub={`已入索引 ${fmt(capture_flow.vectorized_count)}/${fmt(capture_flow.eligible_count)}`} color="#5E5CE6" />
+        <StatCard label="知识化率" value={`${(capture_flow.knowledge_generation_rate * 100).toFixed(0)}%`}
+          sub={`已生成 knowledge ${fmt(capture_flow.knowledge_generated_count)}`} color="#AF52DE" />
+        <StatCard label="知识挂载率" value={`${(capture_flow.knowledge_rate * 100).toFixed(0)}%`}
+          sub={`已关联 capture ${fmt(capture_flow.knowledge_linked_count)}`} color="#FF9500" />
       </div>
 
       <div style={cardStyle}>
@@ -244,7 +306,7 @@ const OverviewContent: React.FC<{ data: MonitorOverview }> = ({ data }) => {
         ) : <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>暂无趋势数据</div>}
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
         <div style={{ ...cardStyle, flex: 1 }}>
           <div style={sectionTitle}>模型用量</div>
           {token_usage.by_model.length === 0
@@ -287,9 +349,13 @@ const OverviewContent: React.FC<{ data: MonitorOverview }> = ({ data }) => {
       </div>
 
       <div style={cardStyle}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
           <span style={sectionTitle as any}>采集流水（今日按小时）</span>
-          <span style={{ fontSize: 11, color: '#6E6E73' }}>知识提炼率 {(capture_flow.knowledge_rate * 100).toFixed(0)}%</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
+            <span style={{ fontSize: 11, color: '#5E5CE6' }}>向量化率 {(capture_flow.vectorization_rate * 100).toFixed(0)}%</span>
+            <span style={{ fontSize: 11, color: '#AF52DE' }}>知识化率 {(capture_flow.knowledge_generation_rate * 100).toFixed(0)}%</span>
+            <span style={{ fontSize: 11, color: '#6E6E73' }}>知识挂载率 {(capture_flow.knowledge_rate * 100).toFixed(0)}%</span>
+          </div>
         </div>
         {capture_flow.by_hour.length > 0
           ? <BarChart data={Array.from({ length: 24 }, (_, h) => ({
@@ -383,7 +449,7 @@ const SystemContent: React.FC<{ data: SystemResources | null }> = ({ data }) => 
     <>
       {/* 当前快照卡片 */}
       {latest && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
           <StatCard label="CPU 总体" value={`${latest.cpu_total.toFixed(1)}%`}
             sub={`进程 ${latest.cpu_process.toFixed(1)}%`} color="#FF9500" />
           <StatCard label="内存使用" value={`${latest.mem_percent.toFixed(1)}%`}
@@ -444,7 +510,7 @@ const SystemContent: React.FC<{ data: SystemResources | null }> = ({ data }) => 
         <div style={sectionTitle}>磁盘 IO（MB）</div>
         {disk_trend.length > 1 ? (
           <>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 11, color: '#34C759', marginBottom: 4 }}>读取</div>
                 <SparkLine
@@ -497,6 +563,21 @@ const SystemContent: React.FC<{ data: SystemResources | null }> = ({ data }) => 
   )
 }
 
+const ErrorNotice: React.FC<{ message: string }> = ({ message }) => (
+  <div style={{
+    background: 'rgba(255,59,48,0.08)',
+    border: '1px solid rgba(255,59,48,0.16)',
+    color: '#C62828',
+    borderRadius: 10,
+    padding: '10px 12px',
+    marginBottom: 10,
+    fontSize: 12,
+    lineHeight: 1.5,
+  }}>
+    监控数据加载失败：{message}
+  </div>
+)
+
 // ── 主组件 ──────────────────────────────────────────────────────────────────
 const MonitorPanel: React.FC = () => {
   const { apiBaseUrl } = useAppStore()
@@ -508,13 +589,23 @@ const MonitorPanel: React.FC = () => {
   const [range, setRange] = useState<'1d' | '7d' | '30d'>('7d')
   const [sysRange, setSysRange] = useState<'1h' | '6h' | '24h'>('6h')
   const [loading, setLoading] = useState(false)
+  const [overviewError, setOverviewError] = useState<string | null>(null)
+  const [systemError, setSystemError] = useState<string | null>(null)
 
   const load = async () => {
     setLoading(true)
+    setOverviewError(null)
     try {
       const res = await fetch(`${base}/api/monitor/overview?range=${range}`)
-      setData(await res.json())
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`)
+      }
+      const json = await res.json()
+      setData(json)
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      setData(null)
+      setOverviewError(message)
       console.error(e)
     } finally {
       setLoading(false)
@@ -523,29 +614,37 @@ const MonitorPanel: React.FC = () => {
 
   const loadSys = async () => {
     setLoading(true)
+    setSystemError(null)
     try {
       const res = await fetch(`${base}/api/monitor/system?range=${sysRange}`)
-      setSysData(await res.json())
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`)
+      }
+      const json = await res.json()
+      setSysData(json)
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      setSysData(null)
+      setSystemError(message)
       console.error(e)
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { if (tab === 'overview') load() }, [range, tab])
-  useEffect(() => { if (tab === 'system') loadSys() }, [sysRange, tab])
+  useEffect(() => { if (tab === 'overview') load() }, [base, range, tab])
+  useEffect(() => { if (tab === 'system') loadSys() }, [base, sysRange, tab])
 
-  if (loading && !data && !sysData) return (
+  if (loading && !data && !sysData && !overviewError && !systemError) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
       height: '100%', color: '#AEAEB2', fontSize: 13 }}>加载中...</div>
   )
 
   return (
-    <div style={{ height: '100%', overflow: 'auto', background: '#F5F5F7', padding: '12px 14px' }}>
+    <div style={{ height: '100%', overflow: 'auto', background: '#F5F5F7', padding: '16px 20px' }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
         <div style={{ display: 'flex', gap: 4 }}>
           {(['overview', 'system'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)} style={{
@@ -556,7 +655,7 @@ const MonitorPanel: React.FC = () => {
             }}>{t === 'overview' ? '总览' : '系统资源'}</button>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {tab === 'overview' && (['1d', '7d', '30d'] as const).map(r => (
             <button key={r} onClick={() => setRange(r)} style={{
               fontSize: 11, padding: '3px 8px', borderRadius: 6, border: 'none', cursor: 'pointer',
@@ -578,7 +677,13 @@ const MonitorPanel: React.FC = () => {
         </div>
       </div>
 
+      {tab === 'overview' && overviewError && <ErrorNotice message={`${overviewError}，请检查 API 地址或确认 Core Engine 已启动`} />}
+      {tab === 'system' && systemError && <ErrorNotice message={`${systemError}，请检查 API 地址或确认 Core Engine 已启动`} />}
+
       {tab === 'overview' && data && <OverviewContent data={data} />}
+      {tab === 'overview' && !data && !overviewError && !loading && (
+        <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '24px 0' }}>暂无监控数据</div>
+      )}
       {tab === 'system' && <SystemContent data={sysData} />}
 
     </div>

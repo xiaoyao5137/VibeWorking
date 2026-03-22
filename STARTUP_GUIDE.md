@@ -11,7 +11,17 @@
 
 ## 🚀 启动方式
 
-### 方式 1: 一键启动（推荐）
+### 方式 1: 一键全组件重启（联调测试推荐）
+
+```bash
+cd /Users/xianjiaqi/Documents/mygit/cy/gzdz
+./start.sh restart
+```
+
+联调、重启后验证、启动应用测试时，默认优先使用 `./start.sh restart`。
+这样会先完整停止并清理旧进程，再按顺序重启所有必要组件，避免因为某个组件没重启或处于脏状态而影响测试结论。
+
+### 方式 2: 一键启动
 
 ```bash
 cd /Users/xianjiaqi/Documents/mygit/cy/gzdz
@@ -21,7 +31,7 @@ cd /Users/xianjiaqi/Documents/mygit/cy/gzdz
 这将按顺序启动所有服务：
 1. AI Sidecar（后台）
 2. Core Engine（后台）
-3. Desktop UI（前台，会打开应用窗口）
+3. Desktop UI（后台启动 dev server / Tauri）
 
 ### 方式 2: 手动分步启动
 
