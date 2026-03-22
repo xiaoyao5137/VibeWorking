@@ -59,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .flatten()
         .and_then(|p| p.value.parse::<u64>().ok())
-        .unwrap_or(2);
+        .unwrap_or(30);
     let mut listener_config = ListenerConfig::default();
     listener_config.interval_secs = interval_secs;
     let enabled = listener_config.enabled.clone();

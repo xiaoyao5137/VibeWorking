@@ -163,6 +163,9 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
           </div>
 
           <div className="flex items-center gap-4">
+            <div className="text-xs text-gray-500 max-w-xs leading-5">
+              这里的 1/2/5/10 秒仅控制调试面板自动刷新，不会修改后台采集频率。
+            </div>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -347,7 +350,7 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
                   <th className="px-3 py-2 text-center">AX文本</th>
                   <th className="px-3 py-2 text-center">OCR</th>
                   <th className="px-3 py-2 text-center">输入</th>
-                  <th className="px-3 py-2 text-center">知识库</th>
+                  <th className="px-3 py-2 text-center">向量化</th>
                 </tr>
               </thead>
               <tbody>
@@ -367,8 +370,8 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
                     >
                       <td className="px-3 py-2">{cap.id}</td>
                       <td className="px-3 py-2">{formatTimestamp(cap.ts)}</td>
-                      <td className="px-3 py-2">{cap.app_name || '-'}</td>
-                      <td className="px-3 py-2 max-w-xs truncate">{cap.win_title || '-'}</td>
+                      <td className="px-3 py-2">{cap.app_name || '上下文缺失'}</td>
+                      <td className="px-3 py-2 max-w-xs truncate">{cap.win_title || '无窗口标题'}</td>
                       <td className="px-3 py-2 text-center">
                         {cap.ax_text ? `✓ ${cap.ax_text.length}字` : '-'}
                       </td>

@@ -262,6 +262,38 @@
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
+.settings-v2__pref-label {
+  display: block;
+  font-size: 14px;
+  color: #000000;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.settings-v2__pref-help {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #6E6E73;
+}
+
+.settings-v2__pref-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  background: white;
+  transition: all 0.2s ease;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+}
+
+.settings-v2__pref-input:focus {
+  outline: none;
+  border-color: #007AFF;
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+}
+
 .settings-v2__pref-item:last-child {
   border-bottom: none;
 }
@@ -367,6 +399,25 @@
 
   .settings-v2__pref-key {
     color: #AEAEB2;
+  }
+
+  .settings-v2__pref-label {
+    color: #FFFFFF;
+  }
+
+  .settings-v2__pref-help {
+    color: #AEAEB2;
+  }
+
+  .settings-v2__pref-input {
+    background: #3A3A3C;
+    border-color: rgba(255, 255, 255, 0.15);
+    color: #FFFFFF;
+  }
+
+  .settings-v2__pref-input:focus {
+    border-color: #0A84FF;
+    box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.1);
   }
 
   .settings-v2__pref-item {

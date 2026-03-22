@@ -316,11 +316,11 @@ const OverviewContent: React.FC<{ data: MonitorOverview }> = ({ data }) => {
               <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
                 borderBottom: i < capture_flow.recent.length - 1 ? '1px solid rgba(0,0,0,0.05)' : 'none' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, color: '#333' }}>{c.app_name || '未知应用'}</div>
+                  <div style={{ fontSize: 12, color: '#333' }}>{c.app_name || '上下文缺失'}</div>
                   <div style={{ fontSize: 11, color: '#AEAEB2', marginTop: 2 }}>{fmtTs(c.ts)}</div>
                 </div>
                 <div style={{ fontSize: 11, color: '#6E6E73', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {c.win_title || '—'}
+                  {c.win_title || '无窗口标题'}
                 </div>
               </div>
             ))}

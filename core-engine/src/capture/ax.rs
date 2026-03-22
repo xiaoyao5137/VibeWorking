@@ -22,6 +22,37 @@ pub struct AXInfo {
     pub extracted_text: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextExtractor {
+    Chrome,
+    Safari,
+    WeChat,
+    VSCode,
+    Generic,
+}
+
+impl TextExtractor {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Chrome => "chrome",
+            Self::Safari => "safari",
+            Self::WeChat => "wechat",
+            Self::VSCode => "vscode",
+            Self::Generic => "generic",
+        }
+    }
+}
+
+fn extractor_for_app_name(app_name: &str) -> TextExtractor {
+    match app_name {
+        "Google Chrome" | "Google Chrome Canary" => TextExtractor::Chrome,
+        "Safari" => TextExtractor::Safari,
+        "WeChat" | "微信" => TextExtractor::WeChat,
+        "Code" | "Visual Studio Code" => TextExtractor::VSCode,
+        _ => TextExtractor::Generic,
+    }
+}
+
 /// 获取当前前台应用的 AX 信息（同步版本，已废弃）。
 ///
 /// 失败（无权限 / AX 不支持 / 超时）时返回 None，由调用方降级到 OCR。
@@ -39,30 +70,82 @@ pub fn get_frontmost_info() -> Option<AXInfo> {
 
 /// 异步获取当前前台应用的 AX 信息（带超时保护）。
 ///
-/// 使用 spawn_blocking 避免阻塞 tokio 运行时，设置 2 秒超时。
+/// 使用 spawn_blocking 避免阻塞 tokio 运行时，基础上下文与文本提取分阶段超时。
 pub async fn get_frontmost_info_async() -> Option<AXInfo> {
     #[cfg(all(target_os = "macos", not(test)))]
     {
         use std::time::Duration;
-        use tracing::warn;
+        use tracing::{debug, warn};
 
-        // 使用 spawn_blocking 避免阻塞
-        let result = tokio::task::spawn_blocking(|| {
-            macos_impl::get_frontmost_info_macos()
-        });
-
-        // 设置 2 秒超时
-        match tokio::time::timeout(Duration::from_secs(2), result).await {
-            Ok(Ok(info)) => info,
+        let basic_task = tokio::task::spawn_blocking(macos_impl::get_frontmost_basic_info_macos);
+        let mut info = match tokio::time::timeout(Duration::from_millis(4000), basic_task).await {
+            Ok(Ok(Some(info))) => {
+                debug!(
+                    app = ?info.app_name,
+                    win_title = ?info.win_title,
+                    "AX 基础上下文获取成功"
+                );
+                info
+            }
+            Ok(Ok(None)) => {
+                warn!("AX 基础上下文获取失败");
+                return None;
+            }
             Ok(Err(e)) => {
-                warn!("AX 信息获取任务失败: {}", e);
-                None
+                warn!("AX 基础上下文任务失败: {}", e);
+                return None;
             }
             Err(_) => {
-                warn!("AX 信息获取超时（2 秒）");
-                None
+                warn!("AX 基础上下文获取超时（4000ms）");
+                return None;
+            }
+        };
+
+        if let Some(app_name) = info.app_name.clone() {
+            let extractor = extractor_for_app_name(&app_name);
+            debug!(app = %app_name, extractor = extractor.as_str(), "AX 文本提取分支已选择");
+
+            let app_name_for_task = app_name.clone();
+            let text_task = tokio::task::spawn_blocking(move || {
+                macos_impl::extract_ax_text_for_app(&app_name_for_task)
+            });
+
+            match tokio::time::timeout(Duration::from_millis(1200), text_task).await {
+                Ok(Ok(Some(text))) => {
+                    debug!(
+                        app = %app_name,
+                        extractor = extractor.as_str(),
+                        text_len = text.len(),
+                        "AX 文本提取成功"
+                    );
+                    info.extracted_text = Some(text);
+                }
+                Ok(Ok(None)) => {
+                    debug!(
+                        app = %app_name,
+                        extractor = extractor.as_str(),
+                        "AX 文本提取为空，等待 OCR 兜底"
+                    );
+                }
+                Ok(Err(e)) => {
+                    warn!(
+                        app = %app_name,
+                        extractor = extractor.as_str(),
+                        "AX 文本提取任务失败: {}",
+                        e
+                    );
+                }
+                Err(_) => {
+                    warn!(
+                        app = %app_name,
+                        extractor = extractor.as_str(),
+                        "AX 文本提取超时（1200ms）"
+                    );
+                }
             }
         }
+
+        Some(info)
     }
     #[cfg(any(not(target_os = "macos"), test))]
     {
@@ -76,16 +159,34 @@ pub async fn get_frontmost_info_async() -> Option<AXInfo> {
 
 #[cfg(all(target_os = "macos", not(test)))]
 mod macos_impl {
-    use super::AXInfo;
+    use super::{extractor_for_app_name, AXInfo, TextExtractor};
     use std::process::Command;
-    use std::time::Duration;
-    use tracing::debug;
+    use tracing::{debug, warn};
 
-    /// 使用 osascript 获取前台应用名 + 窗口标题 + AX 文本。
-    ///
-    /// 尝试提取窗口的可见文本内容（需要 Accessibility 权限）。
+    fn run_osascript(script: &str, stage: &str) -> Result<String, String> {
+        let output = Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .output()
+            .map_err(|e| format!("启动 osascript 失败: {e}"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let status = output.status.code().map_or_else(|| "signal".to_string(), |c| c.to_string());
+            return Err(format!("stage={stage} exit={status} stderr={stderr}"));
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+
     pub fn get_frontmost_info_macos() -> Option<AXInfo> {
-        // 第一步：获取应用名和窗口标题
+        let mut info = get_frontmost_basic_info_macos()?;
+        let app_name = info.app_name.clone()?;
+        info.extracted_text = extract_ax_text_for_app(&app_name);
+        Some(info)
+    }
+
+    pub fn get_frontmost_basic_info_macos() -> Option<AXInfo> {
         let basic_script = r#"
             tell application "System Events"
                 set front_process to first application process whose frontmost is true
@@ -98,75 +199,44 @@ mod macos_impl {
             end tell
         "#;
 
-        let output = Command::new("osascript")
-            .arg("-e")
-            .arg(basic_script)
-            .output()
-            .ok()?;
+        let raw = match run_osascript(basic_script, "basic_context") {
+            Ok(raw) => raw,
+            Err(err) => {
+                warn!("AX 基础脚本失败: {}", err);
+                return None;
+            }
+        };
 
-        if !output.status.success() {
-            debug!("osascript 调用失败");
-            return None;
-        }
-
-        let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let parts: Vec<&str> = raw.splitn(2, '|').collect();
-
-        let app_name  = parts.first().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let app_name = parts.first().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         let win_title = parts.get(1).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
 
         if app_name.is_none() {
+            warn!(raw = %raw, "AX 基础脚本未返回有效 app_name");
             return None;
         }
-
-        // 第二步：尝试提取 AX 文本内容（可能失败，需要权限）
-        let extracted_text = extract_ax_text();
 
         Some(AXInfo {
             app_name,
             win_title,
-            extracted_text,
             ..Default::default()
         })
     }
 
-    /// 尝试提取前台窗口的 AX 文本内容。
+    /// 按已知前台应用名提取 AX 文本内容。
     ///
     /// 针对常见应用（Chrome、Safari、VSCode 等）使用特定的提取方法。
-    fn extract_ax_text() -> Option<String> {
-        // 先获取应用名
-        let app_name = get_app_name()?;
+    pub fn extract_ax_text_for_app(app_name: &str) -> Option<String> {
+        let extractor = extractor_for_app_name(app_name);
+        debug!(app = %app_name, extractor = extractor.as_str(), "开始 AX 文本提取");
 
-        match app_name.as_str() {
-            "Google Chrome" | "Google Chrome Canary" => extract_chrome_text(),
-            "Safari" => extract_safari_text(),
-            "Code" | "Visual Studio Code" => extract_vscode_text(),
-            _ => extract_generic_text(),
+        match extractor {
+            TextExtractor::Chrome => extract_chrome_text(),
+            TextExtractor::Safari => extract_safari_text(),
+            TextExtractor::WeChat => extract_wechat_text(),
+            TextExtractor::VSCode => extract_vscode_text(),
+            TextExtractor::Generic => extract_generic_text(),
         }
-    }
-
-    /// 获取前台应用名
-    fn get_app_name() -> Option<String> {
-        let script = r#"
-            tell application "System Events"
-                set front_process to first application process whose frontmost is true
-                return name of front_process
-            end tell
-        "#;
-
-        let output = Command::new("osascript")
-            .arg("-e")
-            .arg(script)
-            .output()
-            .ok()?;
-
-        if output.status.success() {
-            let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !name.is_empty() {
-                return Some(name);
-            }
-        }
-        None
     }
 
     /// 提取 Chrome 浏览器的页面文本
@@ -181,13 +251,10 @@ mod macos_impl {
                             -- 执行 JavaScript 获取页面文本
                             set page_text to execute active_tab javascript "
                                 (function() {
-                                    // 获取页面标题
                                     var title = document.title;
-                                    // 获取页面主要文本内容
                                     var body = document.body;
                                     if (!body) return title;
 
-                                    // 移除 script 和 style 标签
                                     var clone = body.cloneNode(true);
                                     var scripts = clone.getElementsByTagName('script');
                                     var styles = clone.getElementsByTagName('style');
@@ -198,11 +265,8 @@ mod macos_impl {
                                         styles[i].remove();
                                     }
 
-                                    // 获取可见文本
                                     var text = clone.innerText || clone.textContent || '';
-                                    // 清理多余空白
                                     text = text.replace(/\\s+/g, ' ').trim();
-                                    // 限制长度
                                     if (text.length > 5000) {
                                         text = text.substring(0, 5000) + '...';
                                     }
@@ -217,19 +281,14 @@ mod macos_impl {
             return ""
         "#;
 
-        let output = Command::new("osascript")
-            .arg("-e")
-            .arg(script)
-            .output()
-            .ok()?;
-
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !text.is_empty() {
-                return Some(text);
+        match run_osascript(script, "chrome_text") {
+            Ok(text) if !text.is_empty() => Some(text),
+            Ok(_) => None,
+            Err(err) => {
+                debug!("Chrome AX 文本提取失败: {}", err);
+                None
             }
         }
-        None
     }
 
     /// 提取 Safari 浏览器的页面文本
@@ -262,26 +321,82 @@ mod macos_impl {
             return ""
         "#;
 
-        let output = Command::new("osascript")
-            .arg("-e")
-            .arg(script)
-            .output()
-            .ok()?;
-
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !text.is_empty() {
-                return Some(text);
+        match run_osascript(script, "safari_text") {
+            Ok(text) if !text.is_empty() => Some(text),
+            Ok(_) => None,
+            Err(err) => {
+                debug!("Safari AX 文本提取失败: {}", err);
+                None
             }
         }
-        None
     }
 
-    /// 提取 VSCode 的文本（当前编辑器内容）
+    /// 提取 WeChat 的聊天文本（优先遍历静态文本与文本区域）
+    fn extract_wechat_text() -> Option<String> {
+        let script = r#"
+            tell application "System Events"
+                set front_process to first application process whose frontmost is true
+                if name of front_process is not "WeChat" and name of front_process is not "微信" then
+                    return ""
+                end if
+
+                set text_content to ""
+                try
+                    set front_win to front window of front_process
+
+                    try
+                        set static_items to entire contents of front_win whose role is in {"AXStaticText", "AXTextArea", "AXTextField"}
+                        repeat with ui_elem in static_items
+                            try
+                                set val to value of ui_elem as string
+                                if val is not "" then
+                                    set text_content to text_content & val & linefeed
+                                end if
+                            end try
+                        end repeat
+                    end try
+
+                    if text_content is "" then
+                        try
+                            set all_ui to entire contents of front_win
+                            repeat with ui_elem in all_ui
+                                try
+                                    set role_name to role of ui_elem as string
+                                    if role_name is "AXStaticText" or role_name is "AXTextArea" or role_name is "AXTextField" then
+                                        if value of ui_elem is not missing value then
+                                            set val to value of ui_elem as string
+                                            if val is not "" then
+                                                set text_content to text_content & val & linefeed
+                                            end if
+                                        end if
+                                    end if
+                                end try
+                            end repeat
+                        end try
+                    end if
+                end try
+
+                return text_content
+            end tell
+        "#;
+
+        match run_osascript(script, "wechat_text") {
+            Ok(text) if !text.trim().is_empty() => Some(text.trim().to_string()),
+            Ok(_) => {
+                debug!("WeChat AX 文本提取为空，回退 generic 提取");
+                extract_generic_text()
+            }
+            Err(err) => {
+                debug!("WeChat AX 文本提取失败: {}，回退 generic 提取", err);
+                extract_generic_text()
+            }
+        }
+    }
+
+    /// 提取 VSCode 的文本（当前回退到 generic 提取）
     fn extract_vscode_text() -> Option<String> {
-        // VSCode 不支持 AppleScript，返回 None
-        // 未来可以通过 VSCode API 或剪贴板实现
-        None
+        debug!("VSCode 不支持专用 AppleScript，回退 generic 提取");
+        extract_generic_text()
     }
 
     /// 通用文本提取（使用 System Events）
@@ -292,7 +407,6 @@ mod macos_impl {
                 set text_content to ""
                 try
                     set front_win to front window of front_process
-                    -- 尝试获取所有文本元素
                     set all_ui to entire contents of front_win
                     repeat with ui_elem in all_ui
                         try
@@ -309,19 +423,17 @@ mod macos_impl {
             end tell
         "#;
 
-        let output = Command::new("osascript")
-            .arg("-e")
-            .arg(script)
-            .output()
-            .ok()?;
-
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !text.is_empty() && text.len() > 10 {
-                return Some(text);
+        match run_osascript(script, "generic_text") {
+            Ok(text) if !text.is_empty() && text.len() > 10 => Some(text),
+            Ok(text) => {
+                debug!(text_len = text.len(), "generic AX 文本过短或为空");
+                None
+            }
+            Err(err) => {
+                debug!("generic AX 文本提取失败: {}", err);
+                None
             }
         }
-        None
     }
 }
 
@@ -357,7 +469,6 @@ mod tests {
 
     #[test]
     fn test_get_frontmost_returns_none_in_test() {
-        // 在测试环境中，get_frontmost_info 始终返回 None（不调用系统 API）
         let result = get_frontmost_info();
         assert!(result.is_none(), "测试环境应返回 None");
     }
@@ -370,5 +481,16 @@ mod tests {
         };
         let cloned = info.clone();
         assert_eq!(info.app_name, cloned.app_name);
+    }
+
+    #[test]
+    fn test_extractor_for_app_name_routes_correctly() {
+        assert_eq!(extractor_for_app_name("Google Chrome"), TextExtractor::Chrome);
+        assert_eq!(extractor_for_app_name("Safari"), TextExtractor::Safari);
+        assert_eq!(extractor_for_app_name("WeChat"), TextExtractor::WeChat);
+        assert_eq!(extractor_for_app_name("微信"), TextExtractor::WeChat);
+        assert_eq!(extractor_for_app_name("Code"), TextExtractor::VSCode);
+        assert_eq!(extractor_for_app_name("Visual Studio Code"), TextExtractor::VSCode);
+        assert_eq!(extractor_for_app_name("WeCom"), TextExtractor::Generic);
     }
 }

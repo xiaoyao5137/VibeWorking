@@ -1,117 +1,142 @@
 /* ========================================
-   FloatingBuddy v2 - 优化版样式
+   FloatingBuddy v2 - 左侧菜单栏样式
    ======================================== */
 
 .floating-buddy-v2 {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 1000;
+  width: 220px;
+  min-width: 220px;
+  height: 100%;
+  padding: 24px 16px;
   display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-/* 主按钮 - AI 助手 */
-.buddy-main-btn {
-  position: relative;
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #007AFF 0%, #0051D5 100%);
-  border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  cursor: pointer;
-  box-shadow: 0 8px 20px rgba(0, 122, 255, 0.3);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.buddy-main-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(0, 122, 255, 0.4);
-}
-
-.buddy-main-btn:active {
-  transform: translateY(0);
-  box-shadow: 0 6px 16px rgba(0, 122, 255, 0.3);
-}
-
-/* 状态指示点 */
-.buddy-status-dot {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #34C759;
-  border: 2px solid white;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  animation: pulse-dot 2s infinite;
-}
-
-@keyframes pulse-dot {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.6;
-  }
-}
-
-/* 次要按钮组 */
-.buddy-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
+  flex-direction: column;
+  gap: 24px;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-radius: 24px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 4px 0 16px rgba(15, 23, 42, 0.06);
 }
 
-/* 次要按钮 */
+.buddy-sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+}
+
+.buddy-sidebar-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #007AFF 0%, #0051D5 100%);
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  box-shadow: 0 8px 20px rgba(0, 122, 255, 0.24);
+}
+
+.buddy-sidebar-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.buddy-sidebar-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.buddy-sidebar-subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: #6B7280;
+}
+
+.buddy-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .buddy-action-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 14px;
   background: transparent;
   border: none;
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: #6E6E73;
+  gap: 12px;
+  color: #4B5563;
   cursor: pointer;
+  text-align: left;
   transition: all 0.2s ease;
 }
 
 .buddy-action-btn:hover {
-  background: #F5F5F7;
+  background: #F3F4F6;
   color: #007AFF;
-  transform: scale(1.1);
 }
 
 .buddy-action-btn:active {
-  transform: scale(0.95);
+  transform: translateX(1px);
 }
 
-/* 深色模式支持 */
+.buddy-action-btn--active {
+  background: rgba(0, 122, 255, 0.12);
+  color: #007AFF;
+  font-weight: 600;
+}
+
+.buddy-action-btn__icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.buddy-action-btn__label {
+  font-size: 14px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 @media (prefers-color-scheme: dark) {
-  .buddy-actions {
-    background: rgba(44, 44, 46, 0.95);
+  .floating-buddy-v2 {
+    background: rgba(28, 28, 30, 0.94);
+    border-right-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.28);
+  }
+
+  .buddy-sidebar-title {
+    color: #F3F4F6;
+  }
+
+  .buddy-sidebar-subtitle {
+    color: #9CA3AF;
   }
 
   .buddy-action-btn {
-    color: #AEAEB2;
+    color: #D1D5DB;
   }
 
   .buddy-action-btn:hover {
-    background: #3A3A3C;
+    background: #2C2C2E;
     color: #0A84FF;
+  }
+
+  .buddy-action-btn--active {
+    background: rgba(10, 132, 255, 0.18);
+    color: #5AC8FA;
   }
 }

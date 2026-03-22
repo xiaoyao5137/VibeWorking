@@ -8,6 +8,7 @@
 //! - 这使得引擎在测试中可以完全脱离系统 API 运行
 
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
@@ -118,31 +119,55 @@ impl CaptureEvent {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// 核心采集引擎，协调所有采集步骤。
+#[derive(Debug, Clone, Default)]
+struct CachedContext {
+    app_name: Option<String>,
+    app_bundle_id: Option<String>,
+    win_title: Option<String>,
+    focused_role: Option<String>,
+    focused_id: Option<String>,
+}
+
+impl CachedContext {
+    fn has_context(&self) -> bool {
+        self.app_name.is_some() || self.win_title.is_some() || self.app_bundle_id.is_some()
+    }
+
+    fn from_ax_info(info: &AXInfo) -> Self {
+        Self {
+            app_name: info.app_name.clone(),
+            app_bundle_id: info.app_bundle_id.clone(),
+            win_title: info.win_title.clone(),
+            focused_role: info.focused_role.clone(),
+            focused_id: info.focused_id.clone(),
+        }
+    }
+}
+
 pub struct CaptureEngine {
     storage: StorageManager,
     config:  CaptureConfig,
     filter:  PrivacyFilter,
     ipc_client: Option<IpcClient>,
+    last_context: Mutex<Option<CachedContext>>,
 }
 
 impl CaptureEngine {
     /// 使用默认隐私过滤器创建引擎。
     pub fn new(storage: StorageManager, config: CaptureConfig) -> Self {
-        // 尝试创建 IPC 客户端
         let ipc_client = IpcClient::new();
-        let ipc_client = if ipc_client.is_available() {
-            info!("AI Sidecar 可用，OCR 功能已启用");
-            Some(ipc_client)
+        if ipc_client.is_available() {
+            info!("检测到 AI Sidecar socket，OCR 将在运行时按需连接");
         } else {
-            warn!("AI Sidecar 不可用，OCR 功能已禁用");
-            None
-        };
+            warn!("启动时未检测到 AI Sidecar socket，稍后可自动恢复 OCR 连接");
+        }
 
         Self {
             storage,
             config,
             filter: PrivacyFilter::new(),
-            ipc_client,
+            ipc_client: Some(ipc_client),
+            last_context: Mutex::new(None),
         }
     }
 
@@ -152,17 +177,20 @@ impl CaptureEngine {
         config:  CaptureConfig,
         filter:  PrivacyFilter,
     ) -> Self {
-        // 尝试创建 IPC 客户端
         let ipc_client = IpcClient::new();
-        let ipc_client = if ipc_client.is_available() {
-            info!("AI Sidecar 可用，OCR 功能已启用");
-            Some(ipc_client)
+        if ipc_client.is_available() {
+            info!("检测到 AI Sidecar socket，OCR 将在运行时按需连接");
         } else {
-            warn!("AI Sidecar 不可用，OCR 功能已禁用");
-            None
-        };
+            warn!("启动时未检测到 AI Sidecar socket，稍后可自动恢复 OCR 连接");
+        }
 
-        Self { storage, config, filter, ipc_client }
+        Self {
+            storage,
+            config,
+            filter,
+            ipc_client: Some(ipc_client),
+            last_context: Mutex::new(None),
+        }
     }
 
     // ── 主处理流程 ─────────────────────────────────────────────────────────
@@ -183,8 +211,22 @@ impl CaptureEngine {
             None
         };
 
-        // 2. 合并事件携带的信息与 AX 抓取结果
+        let ax_missing = ax_info.is_none();
+
+        // 2. 合并事件携带的信息、AX 抓取结果和最近一次成功上下文
         let merged = self.merge_ax_and_event(&event, ax_info);
+        let cache_hit = ax_missing
+            && (merged.app_name.is_some() || merged.win_title.is_some() || merged.app_bundle_id.is_some());
+
+        debug!(
+            event = ?event.to_event_type(),
+            ax_missing,
+            cache_hit,
+            app = ?merged.app_name,
+            win_title = ?merged.win_title,
+            ax_text_len = merged.extracted_text.as_ref().map(|t| t.len()),
+            "AX 与上下文合并完成"
+        );
 
         // 3. 隐私过滤
         let is_sensitive = self.filter.is_sensitive(
@@ -197,6 +239,9 @@ impl CaptureEngine {
         if is_sensitive {
             debug!(
                 app = ?merged.app_name,
+                bundle_id = ?merged.app_bundle_id,
+                focused_role = ?merged.focused_role,
+                win_title = ?merged.win_title,
                 "隐私窗口已过滤，记录占位行"
             );
             let id = self.save_capture(
@@ -224,18 +269,30 @@ impl CaptureEngine {
 
         // 5. 写入数据库
         let id = self.save_capture(ts, &merged, &event, screenshot_path.clone(), false)?;
-        debug!(id, app = ?merged.app_name, event = ?event.to_event_type(), "采集完成");
+        self.update_cached_context(&merged);
+        debug!(
+            id,
+            event = ?event.to_event_type(),
+            app = ?merged.app_name,
+            win_title = ?merged.win_title,
+            ax_text_len = merged.extracted_text.as_ref().map(|t| t.len()),
+            screenshot = screenshot_path.is_some(),
+            "采集完成"
+        );
 
         // 6. 异步调用 OCR（如果 AX 文本为空且有截图）
-        if merged.extracted_text.is_none() && screenshot_path.is_some() {
-            if let Some(ref ipc_client) = self.ipc_client {
+        if merged.extracted_text.is_none() {
+            if screenshot_path.is_none() {
+                debug!(id, "跳过 OCR：no_screenshot");
+            } else if let Some(ref ipc_client) = self.ipc_client {
                 let screenshot_path = screenshot_path.unwrap();
                 let full_path = self.config.captures_dir.join(&screenshot_path);
 
                 // 先检查 Sidecar 是否在线
                 if !ipc_client.ping().await {
-                    debug!("AI Sidecar 离线，跳过 OCR");
+                    debug!(id, app = ?merged.app_name, "跳过 OCR：sidecar_offline");
                 } else {
+                    debug!(id, path = %screenshot_path, "触发 OCR：ax_missing");
                     // 异步调用 OCR（带超时保护）
                     let ipc_client = ipc_client.clone();
                     let storage = self.storage.clone();
@@ -251,7 +308,12 @@ impl CaptureEngine {
                         .await
                         {
                             Ok(Ok(Ok(ocr_result))) => {
-                                debug!(id, confidence = ocr_result.confidence, "OCR 识别成功");
+                                debug!(
+                                    id,
+                                    confidence = ocr_result.confidence,
+                                    text_len = ocr_result.text.len(),
+                                    "OCR 识别成功"
+                                );
                                 if let Err(e) = storage.update_ocr_text(
                                     id,
                                     &ocr_result.text,
@@ -260,6 +322,8 @@ impl CaptureEngine {
                                     warn!(id, "更新 OCR 文本失败: {}", e);
                                     return;
                                 }
+
+                                debug!(id, "OCR 文本已回写");
 
                                 // OCR 成功后，立即触发向量化
                                 Self::trigger_embedding(ipc_client, storage, id, ocr_result.text)
@@ -277,8 +341,11 @@ impl CaptureEngine {
                         }
                     });
                 }
+            } else {
+                debug!(id, app = ?merged.app_name, "跳过 OCR：sidecar_unavailable");
             }
-        } else if merged.extracted_text.is_some() {
+        } else {
+            debug!(id, ax_text_len = merged.extracted_text.as_ref().map(|t| t.len()), "跳过 OCR：ax_present");
             // 7. 如果 AX 已经有文本，直接触发向量化
             if let Some(ref ipc_client) = self.ipc_client {
                 let ipc_client = ipc_client.clone();
@@ -316,12 +383,34 @@ impl CaptureEngine {
 
     // ── 辅助方法 ──────────────────────────────────────────────────────────
 
-    /// 合并事件内置信息与 AX 抓取结果。
+    /// 合并事件内置信息、AX 抓取结果与最近一次成功上下文。
     ///
-    /// AppSwitch 事件明确携带 app/bundle/win 信息，直接覆盖 AX 结果。
-    /// 其他事件以 AX 结果为准。
+    /// 优先级：事件显式字段 > 当前 AX 成功值 > 最近缓存值。
     fn merge_ax_and_event(&self, event: &CaptureEvent, ax: Option<AXInfo>) -> AXInfo {
+        let cached = self.last_context
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone());
+
         let mut info = ax.unwrap_or_default();
+
+        if let Some(cached) = cached {
+            if info.app_name.is_none() {
+                info.app_name = cached.app_name;
+            }
+            if info.app_bundle_id.is_none() {
+                info.app_bundle_id = cached.app_bundle_id;
+            }
+            if info.win_title.is_none() {
+                info.win_title = cached.win_title;
+            }
+            if info.focused_role.is_none() {
+                info.focused_role = cached.focused_role;
+            }
+            if info.focused_id.is_none() {
+                info.focused_id = cached.focused_id;
+            }
+        }
 
         if let CaptureEvent::AppSwitch { app_name, bundle_id, win_title } = event {
             info.app_name  = Some(app_name.clone());
@@ -332,6 +421,17 @@ impl CaptureEngine {
         }
 
         info
+    }
+
+    fn update_cached_context(&self, info: &AXInfo) {
+        let context = CachedContext::from_ax_info(info);
+        if !context.has_context() {
+            return;
+        }
+
+        if let Ok(mut guard) = self.last_context.lock() {
+            *guard = Some(context);
+        }
     }
 
     /// 构造并写入 captures 记录。
@@ -435,6 +535,7 @@ impl CaptureEngine {
 mod tests {
     use super::*;
     use crate::storage::repo::capture::CaptureFilter;
+    use crate::storage::StorageManager;
 
     /// 创建测试用引擎（关闭截图和 AX，全部走 mock）
     fn make_engine() -> CaptureEngine {
@@ -560,6 +661,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_wechat_blocked_app_records_sensitive_row() {
+        let storage = StorageManager::open_in_memory().unwrap();
+        let config = CaptureConfig {
+            enable_screenshot: false,
+            enable_ax:         false,
+            ..Default::default()
+        };
+        let filter = PrivacyFilter::new().with_extra_blocked_apps(&["WeChat".into()]);
+        let engine = CaptureEngine::with_filter(storage, config, filter);
+
+        let id = engine
+            .process_event(CaptureEvent::AppSwitch {
+                app_name: "WeChat".into(),
+                bundle_id: Some("com.tencent.xinWeChat".into()),
+                win_title: "微信聊天".into(),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+
+        let rec = engine.storage.get_capture(id).unwrap().unwrap();
+        assert!(rec.is_sensitive, "WeChat 黑名单命中后应标记为敏感");
+        assert!(rec.screenshot_path.is_none(), "敏感记录不应截图");
+        assert!(rec.ax_text.is_none(), "敏感记录不应保留 AX 文本");
+    }
+
+    #[tokio::test]
     async fn test_default_blocked_app_1password() {
         let storage = StorageManager::open_in_memory().unwrap();
         let config = CaptureConfig {
@@ -670,21 +798,37 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_app_switch_overrides_ax() {
+    fn test_merge_falls_back_to_cached_context() {
         let engine = make_engine();
-        let ax_info = AXInfo {
-            app_name:  Some("OldApp".into()),
+        engine.update_cached_context(&AXInfo {
+            app_name: Some("Chrome".into()),
+            app_bundle_id: Some("com.google.Chrome".into()),
+            win_title: Some("Docs".into()),
+            ..Default::default()
+        });
+
+        let merged = engine.merge_ax_and_event(&CaptureEvent::Periodic, None);
+        assert_eq!(merged.app_name.as_deref(), Some("Chrome"));
+        assert_eq!(merged.app_bundle_id.as_deref(), Some("com.google.Chrome"));
+        assert_eq!(merged.win_title.as_deref(), Some("Docs"));
+    }
+
+    #[test]
+    fn test_merge_prefers_current_ax_over_cached_context() {
+        let engine = make_engine();
+        engine.update_cached_context(&AXInfo {
+            app_name: Some("OldApp".into()),
             win_title: Some("Old Window".into()),
             ..Default::default()
-        };
-        let event = CaptureEvent::AppSwitch {
-            app_name:  "NewApp".into(),
-            bundle_id: Some("com.new.app".into()),
-            win_title: "New Window".into(),
-        };
-        let merged = engine.merge_ax_and_event(&event, Some(ax_info));
+        });
+
+        let merged = engine.merge_ax_and_event(&CaptureEvent::Periodic, Some(AXInfo {
+            app_name: Some("NewApp".into()),
+            win_title: Some("New Window".into()),
+            ..Default::default()
+        }));
         assert_eq!(merged.app_name.as_deref(), Some("NewApp"));
         assert_eq!(merged.win_title.as_deref(), Some("New Window"));
-        assert_eq!(merged.app_bundle_id.as_deref(), Some("com.new.app"));
     }
+
 }

@@ -46,13 +46,15 @@ const App: React.FC = () => {
     <div className="app" data-testid="app-root">
       <FloatingBuddy />
 
-      {windowMode === 'rag'       && <RagPanel />}
-      {windowMode === 'knowledge' && <KnowledgePanel />}
-      {windowMode === 'models'    && <ModelManager />}
-      {windowMode === 'settings'  && <Settings />}
-      {windowMode === 'debug'     && <DebugPanel />}
-      {windowMode === 'tasks'     && <ScheduledTasksPanel />}
-      {windowMode === 'monitor'   && <MonitorPanel />}
+      <main className="app-content">
+        {windowMode === 'rag'       && <RagPanel />}
+        {windowMode === 'knowledge' && <KnowledgePanel />}
+        {windowMode === 'models'    && <ModelManager />}
+        {windowMode === 'settings'  && <Settings />}
+        {windowMode === 'debug'     && <DebugPanel />}
+        {windowMode === 'tasks'     && <ScheduledTasksPanel />}
+        {windowMode === 'monitor'   && <MonitorPanel />}
+      </main>
 
       <ActionConfirm />
     </div>

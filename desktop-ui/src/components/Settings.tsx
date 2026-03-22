@@ -8,7 +8,7 @@
  * 4. 添加图标和描述文字
  */
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { useFetchPreferences, useUpdatePreference } from '../hooks/useApi'
 import type { PreferenceRecord } from '../types'
@@ -19,6 +19,8 @@ interface SettingsProps {
 }
 
 const Settings: React.FC<SettingsProps> = ({ className = '' }) => {
+  const CAPTURE_INTERVAL_KEY = 'privacy.capture_interval_sec'
+
   const {
     apiBaseUrl,
     sidecarVersion,
@@ -34,6 +36,14 @@ const Settings: React.FC<SettingsProps> = ({ className = '' }) => {
 
   const fetchPrefs = useFetchPreferences()
   const updatePref = useUpdatePreference()
+
+  const sortedPreferences = useMemo(() => {
+    return [...preferences].sort((a, b) => {
+      if (a.key === CAPTURE_INTERVAL_KEY) return -1
+      if (b.key === CAPTURE_INTERVAL_KEY) return 1
+      return a.key.localeCompare(b.key)
+    })
+  }, [preferences])
 
   useEffect(() => {
     setLoading(true)
@@ -56,11 +66,15 @@ const Settings: React.FC<SettingsProps> = ({ className = '' }) => {
         setPreferences((prev) =>
           prev.map((p) => (p.key === key ? { ...p, value: updated.value } : p))
         )
+        if (key === CAPTURE_INTERVAL_KEY) {
+          setSaveMsg('后台采集间隔已保存，需重启 Core Engine 后生效')
+          setTimeout(() => setSaveMsg(null), 3000)
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e))
       }
     },
-    [updatePref]
+    [CAPTURE_INTERVAL_KEY, updatePref]
   )
 
   const handleClose = () => setWindowMode('buddy')
@@ -214,28 +228,39 @@ const Settings: React.FC<SettingsProps> = ({ className = '' }) => {
           )}
 
           <div className="settings-v2__pref-list">
-            {preferences.slice(0, 10).map((pref) => (
-              <div
-                key={pref.key}
-                className="settings-v2__pref-item"
-                data-testid={`pref-row-${pref.key}`}
-              >
-                <label htmlFor={`pref-${pref.key}`} className="settings-v2__pref-label">
-                  {pref.key}
-                </label>
-                <input
-                  id={`pref-${pref.key}`}
-                  type="text"
-                  className="settings-v2__pref-input"
-                  defaultValue={pref.value}
-                  onBlur={(e) => {
-                    if (e.target.value !== pref.value) {
-                      handlePrefChange(pref.key, e.target.value)
-                    }
-                  }}
-                />
-              </div>
-            ))}
+            {sortedPreferences.map((pref) => {
+              const isCaptureInterval = pref.key === CAPTURE_INTERVAL_KEY
+              return (
+                <div
+                  key={pref.key}
+                  className="settings-v2__pref-item"
+                  data-testid={`pref-row-${pref.key}`}
+                >
+                  <label htmlFor={`pref-${pref.key}`} className="settings-v2__pref-label">
+                    {isCaptureInterval ? '后台采集间隔（秒）' : pref.key}
+                  </label>
+                  {isCaptureInterval && (
+                    <p className="settings-v2__pref-help">
+                      控制 Core Engine 的后台定时采集节奏，不是调试面板的页面刷新频率。修改后需重启 Core Engine 生效。
+                    </p>
+                  )}
+                  {!isCaptureInterval && (
+                    <div className="settings-v2__pref-key">{pref.key}</div>
+                  )}
+                  <input
+                    id={`pref-${pref.key}`}
+                    type="text"
+                    className="settings-v2__pref-input"
+                    defaultValue={pref.value}
+                    onBlur={(e) => {
+                      if (e.target.value !== pref.value) {
+                        handlePrefChange(pref.key, e.target.value)
+                      }
+                    }}
+                  />
+                </div>
+              )
+            })}
           </div>
         </section>
 
