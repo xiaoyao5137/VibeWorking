@@ -28,10 +28,20 @@ pub struct KnowledgeEntry {
     pub category: String,
     pub importance: i64,
     pub occurrence_count: Option<i64>,
+    pub observed_at: Option<i64>,
+    pub event_time_start: Option<i64>,
+    pub event_time_end: Option<i64>,
+    pub history_view: bool,
+    pub content_origin: Option<String>,
+    pub activity_type: Option<String>,
+    pub is_self_generated: bool,
+    pub evidence_strength: Option<String>,
     pub user_verified: bool,
     pub user_edited: bool,
     pub created_at: String,
     pub updated_at: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
 }
 
 /// 查询参数
@@ -65,7 +75,11 @@ pub async fn list_knowledge(
         let (entries, total) = if let Some(ref category) = params.category {
             let mut stmt = conn.prepare(
                 "SELECT id, capture_id, summary, overview, details, entities, category, importance,
-                 occurrence_count, user_verified, user_edited, created_at, updated_at
+                 occurrence_count, observed_at, event_time_start, event_time_end,
+                 history_view, content_origin, activity_type, is_self_generated,
+                 evidence_strength, user_verified, user_edited, created_at, updated_at,
+                 CAST(strftime('%s', created_at) AS INTEGER) * 1000,
+                 CAST(strftime('%s', updated_at) AS INTEGER) * 1000
                  FROM knowledge_entries WHERE category = ?1
                    AND summary NOT LIKE ?2
                  ORDER BY created_at DESC LIMIT ?3 OFFSET ?4"
@@ -81,8 +95,17 @@ pub async fn list_knowledge(
                         details: row.get(4).ok(), entities,
                         category: row.get(6)?, importance: row.get(7)?,
                         occurrence_count: row.get(8).ok(),
-                        user_verified: row.get(9)?, user_edited: row.get(10)?,
-                        created_at: row.get(11)?, updated_at: row.get(12)?,
+                        observed_at: row.get(9)?,
+                        event_time_start: row.get(10)?,
+                        event_time_end: row.get(11)?,
+                        history_view: row.get(12)?,
+                        content_origin: row.get(13)?,
+                        activity_type: row.get(14)?,
+                        is_self_generated: row.get(15)?,
+                        evidence_strength: row.get(16)?,
+                        user_verified: row.get(17)?, user_edited: row.get(18)?,
+                        created_at: row.get(19)?, updated_at: row.get(20)?,
+                        created_at_ms: row.get(21)?, updated_at_ms: row.get(22)?,
                     })
                 })
                 .map_err(|e| crate::storage::StorageError::Sqlite(e))?
@@ -101,7 +124,11 @@ pub async fn list_knowledge(
         } else {
             let mut stmt = conn.prepare(
                 "SELECT id, capture_id, summary, overview, details, entities, category, importance,
-                 occurrence_count, user_verified, user_edited, created_at, updated_at
+                 occurrence_count, observed_at, event_time_start, event_time_end,
+                 history_view, content_origin, activity_type, is_self_generated,
+                 evidence_strength, user_verified, user_edited, created_at, updated_at,
+                 CAST(strftime('%s', created_at) AS INTEGER) * 1000,
+                 CAST(strftime('%s', updated_at) AS INTEGER) * 1000
                  FROM knowledge_entries
                  WHERE summary NOT LIKE ?1
                  ORDER BY created_at DESC LIMIT ?2 OFFSET ?3"
@@ -117,8 +144,17 @@ pub async fn list_knowledge(
                         details: row.get(4).ok(), entities,
                         category: row.get(6)?, importance: row.get(7)?,
                         occurrence_count: row.get(8).ok(),
-                        user_verified: row.get(9)?, user_edited: row.get(10)?,
-                        created_at: row.get(11)?, updated_at: row.get(12)?,
+                        observed_at: row.get(9)?,
+                        event_time_start: row.get(10)?,
+                        event_time_end: row.get(11)?,
+                        history_view: row.get(12)?,
+                        content_origin: row.get(13)?,
+                        activity_type: row.get(14)?,
+                        is_self_generated: row.get(15)?,
+                        evidence_strength: row.get(16)?,
+                        user_verified: row.get(17)?, user_edited: row.get(18)?,
+                        created_at: row.get(19)?, updated_at: row.get(20)?,
+                        created_at_ms: row.get(21)?, updated_at_ms: row.get(22)?,
                     })
                 })
                 .map_err(|e| crate::storage::StorageError::Sqlite(e))?

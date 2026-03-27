@@ -70,8 +70,12 @@ fn insert_vector_index_inner(
 ) -> Result<i64, StorageError> {
     conn.execute(
         "INSERT INTO vector_index
-            (capture_id, qdrant_point_id, chunk_index, chunk_text, model_name, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (capture_id, qdrant_point_id, chunk_index, chunk_text, model_name, created_at,
+             doc_key, source_type, knowledge_id, time, start_time, end_time,
+             observed_at, event_time_start, event_time_end, history_view,
+             content_origin, activity_type, is_self_generated, evidence_strength,
+             app_name, win_title, category, user_verified)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
         params![
             v.capture_id,
             v.qdrant_point_id,
@@ -79,6 +83,24 @@ fn insert_vector_index_inner(
             v.chunk_text,
             v.model_name,
             v.created_at,
+            v.doc_key,
+            v.source_type,
+            v.knowledge_id,
+            v.time,
+            v.start_time,
+            v.end_time,
+            v.observed_at,
+            v.event_time_start,
+            v.event_time_end,
+            v.history_view,
+            v.content_origin,
+            v.activity_type,
+            v.is_self_generated,
+            v.evidence_strength,
+            v.app_name,
+            v.win_title,
+            v.category,
+            v.user_verified,
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -96,7 +118,11 @@ impl StorageManager {
     ) -> Result<Option<VectorIndexRecord>, StorageError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, capture_id, qdrant_point_id, chunk_index, chunk_text, model_name, created_at
+                "SELECT id, capture_id, qdrant_point_id, chunk_index, chunk_text, model_name, created_at,
+                        doc_key, source_type, knowledge_id, time, start_time, end_time,
+                        observed_at, event_time_start, event_time_end, history_view,
+                        content_origin, activity_type, is_self_generated, evidence_strength,
+                        app_name, win_title, category, user_verified
                  FROM vector_index WHERE id = ?1",
             )?;
             let mut rows = stmt.query(params![id])?;
@@ -115,7 +141,11 @@ impl StorageManager {
     ) -> Result<Vec<VectorIndexRecord>, StorageError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, capture_id, qdrant_point_id, chunk_index, chunk_text, model_name, created_at
+                "SELECT id, capture_id, qdrant_point_id, chunk_index, chunk_text, model_name, created_at,
+                        doc_key, source_type, knowledge_id, time, start_time, end_time,
+                        observed_at, event_time_start, event_time_end, history_view,
+                        content_origin, activity_type, is_self_generated, evidence_strength,
+                        app_name, win_title, category, user_verified
                  FROM vector_index WHERE capture_id = ?1 ORDER BY chunk_index ASC",
             )?;
             let rows = stmt.query_map(params![capture_id], |row| {
@@ -132,7 +162,11 @@ impl StorageManager {
     ) -> Result<Option<VectorIndexRecord>, StorageError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, capture_id, qdrant_point_id, chunk_index, chunk_text, model_name, created_at
+                "SELECT id, capture_id, qdrant_point_id, chunk_index, chunk_text, model_name, created_at,
+                        doc_key, source_type, knowledge_id, time, start_time, end_time,
+                        observed_at, event_time_start, event_time_end, history_view,
+                        content_origin, activity_type, is_self_generated, evidence_strength,
+                        app_name, win_title, category, user_verified
                  FROM vector_index WHERE qdrant_point_id = ?1",
             )?;
             let mut rows = stmt.query(params![qdrant_point_id])?;
@@ -145,8 +179,6 @@ impl StorageManager {
     }
 
     /// 批量按 qdrant_point_id 列表反查元数据（RAG 检索后批量获取上下文）。
-    ///
-    /// 返回顺序与输入 `point_ids` 顺序一致（缺失的 id 不出现在结果中）。
     pub fn get_vector_indices_by_point_ids(
         &self,
         point_ids: &[String],
@@ -155,7 +187,6 @@ impl StorageManager {
             return Ok(vec![]);
         }
         self.with_conn(|conn| {
-            // SQLite 不支持数组参数，用 IN (?,?,?) 拼接
             let placeholders = point_ids
                 .iter()
                 .enumerate()
@@ -163,7 +194,11 @@ impl StorageManager {
                 .collect::<Vec<_>>()
                 .join(", ");
             let sql = format!(
-                "SELECT id, capture_id, qdrant_point_id, chunk_index, chunk_text, model_name, created_at
+                "SELECT id, capture_id, qdrant_point_id, chunk_index, chunk_text, model_name, created_at,
+                        doc_key, source_type, knowledge_id, time, start_time, end_time,
+                        observed_at, event_time_start, event_time_end, history_view,
+                        content_origin, activity_type, is_self_generated, evidence_strength,
+                        app_name, win_title, category, user_verified
                  FROM vector_index WHERE qdrant_point_id IN ({})",
                 placeholders
             );
@@ -181,7 +216,7 @@ impl StorageManager {
     pub fn is_capture_vectorized(&self, capture_id: i64) -> Result<bool, StorageError> {
         self.with_conn(|conn| {
             let count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM vector_index WHERE capture_id = ?1",
+                "SELECT COUNT(*) FROM vector_index WHERE capture_id = ?1 AND source_type = 'capture'",
                 params![capture_id],
                 |row| row.get(0),
             )?;
@@ -190,13 +225,11 @@ impl StorageManager {
     }
 
     /// 列举尚未向量化的 capture id（用于批处理任务调度）。
-    ///
-    /// `limit`：每次最多处理的条数
     pub fn list_unvectorized_capture_ids(&self, limit: usize) -> Result<Vec<i64>, StorageError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT c.id FROM captures c
-                 LEFT JOIN vector_index v ON v.capture_id = c.id
+                 LEFT JOIN vector_index v ON v.capture_id = c.id AND v.source_type = 'capture'
                  WHERE v.id IS NULL AND c.is_sensitive = 0
                  ORDER BY c.ts ASC LIMIT ?1",
             )?;
@@ -209,7 +242,7 @@ impl StorageManager {
     pub fn count_vectorized(&self) -> Result<i64, StorageError> {
         self.with_conn(|conn| {
             let count: i64 = conn.query_row(
-                "SELECT COUNT(DISTINCT capture_id) FROM vector_index",
+                "SELECT COUNT(DISTINCT doc_key) FROM vector_index",
                 [],
                 |row| row.get(0),
             )?;
@@ -221,46 +254,52 @@ impl StorageManager {
     pub fn get_by_capture_id(&self, capture_id: i64) -> Result<VectorIndexRecord, StorageError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, capture_id, qdrant_point_id, chunk_index, chunk_text, model_name, created_at
+                "SELECT id, capture_id, qdrant_point_id, chunk_index, chunk_text, model_name, created_at,
+                        doc_key, source_type, knowledge_id, time, start_time, end_time,
+                        observed_at, event_time_start, event_time_end, history_view,
+                        content_origin, activity_type, is_self_generated, evidence_strength,
+                        app_name, win_title, category, user_verified
                  FROM vector_index
                  WHERE capture_id = ?1
                  LIMIT 1",
             )?;
             let record = stmt.query_row(params![capture_id], |row| {
-                Ok(VectorIndexRecord {
-                    id:              row.get(0)?,
-                    capture_id:      row.get(1)?,
-                    qdrant_point_id: row.get(2)?,
-                    chunk_index:     row.get(3)?,
-                    chunk_text:      row.get(4)?,
-                    model_name:      row.get(5)?,
-                    created_at:      row.get(6)?,
-                })
+                Ok(row_to_vector_index(row).map_err(|_| rusqlite::Error::InvalidQuery)?)
             })?;
             Ok(record)
         })
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 行映射辅助
-// ─────────────────────────────────────────────────────────────────────────────
-
 fn row_to_vector_index(row: &rusqlite::Row<'_>) -> Result<VectorIndexRecord, StorageError> {
     Ok(VectorIndexRecord {
-        id:              row.get(0)?,
-        capture_id:      row.get(1)?,
-        qdrant_point_id: row.get(2)?,
-        chunk_index:     row.get(3)?,
-        chunk_text:      row.get(4)?,
-        model_name:      row.get(5)?,
-        created_at:      row.get(6)?,
+        id:                row.get(0)?,
+        capture_id:        row.get(1)?,
+        qdrant_point_id:   row.get(2)?,
+        chunk_index:       row.get(3)?,
+        chunk_text:        row.get(4)?,
+        model_name:        row.get(5)?,
+        created_at:        row.get(6)?,
+        doc_key:           row.get(7)?,
+        source_type:       row.get(8)?,
+        knowledge_id:      row.get(9)?,
+        time:              row.get(10)?,
+        start_time:        row.get(11)?,
+        end_time:          row.get(12)?,
+        observed_at:       row.get(13)?,
+        event_time_start:  row.get(14)?,
+        event_time_end:    row.get(15)?,
+        history_view:      row.get(16)?,
+        content_origin:    row.get(17)?,
+        activity_type:     row.get(18)?,
+        is_self_generated: row.get(19)?,
+        evidence_strength: row.get(20)?,
+        app_name:          row.get(21)?,
+        win_title:         row.get(22)?,
+        category:          row.get(23)?,
+        user_verified:     row.get(24)?,
     })
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 测试
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -299,6 +338,24 @@ mod tests {
             chunk_text:      "测试分块文本".into(),
             model_name:      "bge-m3".into(),
             created_at:      current_ts_ms(),
+            doc_key:         format!("capture:{}", capture_id),
+            source_type:     "capture".into(),
+            knowledge_id:    None,
+            time:            Some(current_ts_ms()),
+            start_time:      None,
+            end_time:        None,
+            observed_at:     None,
+            event_time_start: None,
+            event_time_end:  None,
+            history_view:    false,
+            content_origin:  None,
+            activity_type:   None,
+            is_self_generated: false,
+            evidence_strength: None,
+            app_name:        Some("TestApp".into()),
+            win_title:       Some("Test Window".into()),
+            category:        None,
+            user_verified:   false,
         }
     }
 
@@ -313,6 +370,8 @@ mod tests {
         assert_eq!(rec.capture_id, capture_id);
         assert_eq!(rec.qdrant_point_id, "uuid-001");
         assert_eq!(rec.model_name, "bge-m3");
+        assert_eq!(rec.doc_key, format!("capture:{}", capture_id));
+        assert_eq!(rec.source_type, "capture");
     }
 
     #[test]
@@ -356,7 +415,6 @@ mod tests {
         let c1 = insert_test_capture(&mgr);
         let c2 = insert_test_capture(&mgr);
 
-        // c1 已向量化，c2 未向量化
         mgr.insert_vector_index(&sample_index(c1, "uuid-001", 0)).unwrap();
 
         let unvectorized = mgr.list_unvectorized_capture_ids(10).unwrap();

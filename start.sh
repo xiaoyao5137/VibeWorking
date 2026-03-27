@@ -226,6 +226,33 @@ check_dependencies() {
 
 # 启动 AI Sidecar
 start_sidecar() {
+    if is_running "$SIDECAR_PID_FILE" && is_running "$MODEL_API_PID_FILE"; then
+        log_info "AI Sidecar 与 Model API 已在运行，复用现有进程"
+        return 0
+    fi
+
+    if is_running "$SIDECAR_PID_FILE" && ! is_running "$MODEL_API_PID_FILE"; then
+        log_warn "检测到 Model API 未运行，先停止现有 AI Sidecar 后整体拉起"
+        local pid=$(cat "$SIDECAR_PID_FILE")
+        kill "$pid" 2>/dev/null || true
+        sleep 1
+        if ps -p "$pid" > /dev/null 2>&1; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+        rm -f "$SIDECAR_PID_FILE"
+    fi
+
+    if ! is_running "$SIDECAR_PID_FILE" && is_running "$MODEL_API_PID_FILE"; then
+        log_warn "检测到 AI Sidecar 未运行，先停止现有 Model API 后整体拉起"
+        local pid=$(cat "$MODEL_API_PID_FILE")
+        kill "$pid" 2>/dev/null || true
+        sleep 1
+        if ps -p "$pid" > /dev/null 2>&1; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+        rm -f "$MODEL_API_PID_FILE"
+    fi
+
     log_info "启动 AI Sidecar..."
 
     cd "$PROJECT_ROOT/ai-sidecar"
@@ -240,6 +267,8 @@ start_sidecar() {
         source .venv/bin/activate
     fi
 
+    cleanup_port "$MODEL_API_PORT" "Model API"
+
     # 启动 Sidecar（后台运行）
     nohup python main.py > "$SIDECAR_LOG" 2>&1 &
     echo $! > "$SIDECAR_PID_FILE"
@@ -248,8 +277,8 @@ start_sidecar() {
     nohup python model_api_server.py > "$MODEL_API_LOG" 2>&1 &
     echo $! > "$MODEL_API_PID_FILE"
 
-    log_success "AI Sidecar 已启动 (PID: $(cat $SIDECAR_PID_FILE))"
-    log_success "Model API Server 已启动 (PID: $(cat $MODEL_API_PID_FILE))"
+    log_success "AI Sidecar 已启动 (PID: $(cat "$SIDECAR_PID_FILE"))"
+    log_success "Model API Server 已启动 (PID: $(cat "$MODEL_API_PID_FILE"))"
     log_info "日志文件: $SIDECAR_LOG"
 
     # 等待 Sidecar 启动
@@ -259,6 +288,11 @@ start_sidecar() {
 
 # 启动 Core Engine
 start_core() {
+    if is_running "$CORE_PID_FILE"; then
+        log_info "Core Engine 已在运行，复用现有进程"
+        return 0
+    fi
+
     log_info "启动 Core Engine..."
 
     cd "$PROJECT_ROOT/core-engine"
@@ -268,6 +302,8 @@ start_core() {
         log_info "首次运行，正在构建 Core Engine..."
         cargo build --release
     fi
+
+    cleanup_port "$CORE_PORT" "Core Engine"
 
     # 启动 Core Engine（后台运行）
     nohup ./target/release/memory-bread > "$CORE_LOG" 2>&1 &
@@ -285,6 +321,11 @@ start_core() {
 
 # 启动 Desktop UI
 start_ui() {
+    if is_running "$UI_PID_FILE"; then
+        log_info "Desktop UI 已在运行，复用现有进程"
+        return 0
+    fi
+
     log_info "启动 Desktop UI..."
 
     cd "$PROJECT_ROOT/desktop-ui"
@@ -297,6 +338,8 @@ start_ui() {
 
     # 确保 Rust 在 PATH 中
     export PATH="$HOME/.cargo/bin:$PATH"
+
+    cleanup_port "$UI_PORT" "Desktop UI / Vite"
 
     # 启动 Tauri 开发服务器（后台运行）
     log_info "启动 Tauri 开发服务器..."
@@ -326,13 +369,6 @@ main() {
     # 解析命令行参数
     case "${1:-start}" in
         start)
-            # 检查是否已经在运行
-            if is_running "$SIDECAR_PID_FILE" || is_running "$CORE_PID_FILE" || is_running "$UI_PID_FILE"; then
-                log_warn "检测到现有组件仍在运行，先执行全组件 stop 以避免脏状态..."
-                stop_all
-                sleep 2
-            fi
-
             check_dependencies
             start_sidecar
             start_core

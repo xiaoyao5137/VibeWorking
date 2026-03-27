@@ -505,13 +505,32 @@ impl CaptureEngine {
                 let point_id = uuid::Uuid::new_v4().to_string();
 
                 // 写入 vector_index 元数据
+                let created_at = current_ts_ms();
                 let index = NewVectorIndex {
                     capture_id,
                     qdrant_point_id: point_id,
                     chunk_index: 0, // 单文本不分块
                     chunk_text: text,
                     model_name: "bge-m3".to_string(), // 与 AI Sidecar 保持一致
-                    created_at: current_ts_ms(),
+                    created_at,
+                    doc_key: format!("capture:{}", capture_id),
+                    source_type: "capture".to_string(),
+                    knowledge_id: None,
+                    time: Some(created_at),
+                    start_time: None,
+                    end_time: None,
+                    observed_at: None,
+                    event_time_start: None,
+                    event_time_end: None,
+                    history_view: false,
+                    content_origin: None,
+                    activity_type: None,
+                    is_self_generated: false,
+                    evidence_strength: None,
+                    app_name: None,
+                    win_title: None,
+                    category: None,
+                    user_verified: false,
                 };
 
                 if let Err(e) = storage.insert_vector_index(&index) {

@@ -54,6 +54,9 @@ class KnowledgeManager:
             )
         """)
 
+        self._ensure_fragment_columns(cursor)
+        self._ensure_semantic_columns(cursor)
+
         # 创建全文搜索索引
         cursor.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
@@ -89,6 +92,57 @@ class KnowledgeManager:
         conn.close()
         logger.info("知识库表初始化完成")
 
+    @staticmethod
+    def _ensure_semantic_columns(cursor: sqlite3.Cursor) -> None:
+        """兼容旧数据库：补齐知识语义字段。"""
+        cursor.execute("PRAGMA table_info(knowledge_entries)")
+        existing = {row[1] for row in cursor.fetchall()}
+
+        expected_columns = {
+            'observed_at': 'INTEGER',
+            'event_time_start': 'INTEGER',
+            'event_time_end': 'INTEGER',
+            'history_view': 'INTEGER NOT NULL DEFAULT 0',
+            'content_origin': 'TEXT',
+            'activity_type': 'TEXT',
+            'is_self_generated': 'INTEGER NOT NULL DEFAULT 0',
+            'evidence_strength': 'TEXT',
+        }
+
+        for name, col_type in expected_columns.items():
+            if name not in existing:
+                logger.info("为 knowledge_entries 自动补列: %s", name)
+                cursor.execute(f"ALTER TABLE knowledge_entries ADD COLUMN {name} {col_type}")
+
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_observed_at ON knowledge_entries(observed_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_event_time ON knowledge_entries(event_time_start, event_time_end)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_activity_type ON knowledge_entries(activity_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_history_view ON knowledge_entries(history_view)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_self_generated ON knowledge_entries(is_self_generated)")
+
+    @staticmethod
+    def _ensure_fragment_columns(cursor: sqlite3.Cursor) -> None:
+        """兼容旧数据库：补齐片段知识相关列与索引。"""
+        cursor.execute("PRAGMA table_info(knowledge_entries)")
+        existing = {row[1] for row in cursor.fetchall()}
+
+        expected_columns = {
+            'capture_ids': 'TEXT',
+            'start_time': 'INTEGER',
+            'end_time': 'INTEGER',
+            'duration_minutes': 'INTEGER',
+            'frag_app_name': 'TEXT',
+            'frag_win_title': 'TEXT',
+        }
+
+        for name, col_type in expected_columns.items():
+            if name not in existing:
+                logger.info("为 knowledge_entries 自动补列: %s", name)
+                cursor.execute(f"ALTER TABLE knowledge_entries ADD COLUMN {name} {col_type}")
+
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_time ON knowledge_entries(start_time, end_time)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_app ON knowledge_entries(frag_app_name)")
+
     def add_entry(self, knowledge: Dict[str, Any]) -> int:
         """
         添加知识条目
@@ -109,8 +163,10 @@ class KnowledgeManager:
         cursor.execute("""
             INSERT INTO knowledge_entries (
                 capture_id, summary, overview, details, entities, category,
-                importance, occurrence_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                importance, occurrence_count, observed_at, event_time_start,
+                event_time_end, history_view, content_origin, activity_type,
+                is_self_generated, evidence_strength
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             knowledge['capture_id'],
             overview,  # 保持向后兼容
@@ -119,7 +175,15 @@ class KnowledgeManager:
             knowledge.get('entities', '[]'),
             knowledge.get('category', '其他'),
             knowledge.get('importance', 3),
-            knowledge.get('occurrence_count', 1)
+            knowledge.get('occurrence_count', 1),
+            knowledge.get('observed_at'),
+            knowledge.get('event_time_start'),
+            knowledge.get('event_time_end'),
+            int(bool(knowledge.get('history_view', False))),
+            knowledge.get('content_origin'),
+            knowledge.get('activity_type'),
+            int(bool(knowledge.get('is_self_generated', False))),
+            knowledge.get('evidence_strength'),
         ))
 
         entry_id = cursor.lastrowid
@@ -226,11 +290,20 @@ class KnowledgeManager:
         set_clauses = []
         params = []
 
+        allowed_fields = {
+            'summary', 'entities', 'category', 'importance', 'user_verified', 'user_edited',
+            'overview', 'details', 'occurrence_count', 'observed_at', 'event_time_start',
+            'event_time_end', 'history_view', 'content_origin', 'activity_type',
+            'is_self_generated', 'evidence_strength',
+        }
+
         for key, value in updates.items():
-            if key in ['summary', 'entities', 'category', 'importance', 'user_verified', 'user_edited']:
+            if key in allowed_fields:
                 set_clauses.append(f"{key} = ?")
                 if key == 'entities' and isinstance(value, list):
                     params.append(json.dumps(value, ensure_ascii=False))
+                elif key in {'history_view', 'is_self_generated'}:
+                    params.append(int(bool(value)))
                 else:
                     params.append(value)
 

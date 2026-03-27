@@ -27,7 +27,11 @@ static MIGRATIONS: &[(&str, &str)] = &[
     ("003_views",                 include_str!("migrations/003_views.sql")),
     ("004_captures_knowledge_id", include_str!("../../../shared/db-schema/migrations/004_captures_knowledge_id.sql")),
     ("005_monitor_tables",        include_str!("../../../shared/db-schema/migrations/005_monitor_tables.sql")),
+    ("006_monitor_metric_scopes", include_str!("../../../shared/db-schema/migrations/006_monitor_metric_scopes.sql")),
+    ("007_vector_index_rag_metadata", include_str!("../../../shared/db-schema/migrations/007_vector_index_rag_metadata.sql")),
+    ("008_knowledge_semantic_metadata", include_str!("../../../shared/db-schema/migrations/008_knowledge_semantic_metadata.sql")),
 ];
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // StorageManager

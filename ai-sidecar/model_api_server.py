@@ -9,6 +9,12 @@ from model_registry import AVAILABLE_MODELS, get_recommendations, get_model, lis
 import psutil
 import logging
 import dataclasses
+import json
+import sqlite3
+import time
+from pathlib import Path
+
+from monitor.llm_tracker import estimate_tokens, log_llm_usage
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +23,64 @@ CORS(app)
 
 # 初始化模型管理器
 model_manager = ModelManager()
+_rag_pipeline = None
+DB_PATH = str(Path.home() / ".memory-bread" / "memory-bread.db")
+
+
+def _save_rag_session(query: str, prompt_used: str, answer: str, contexts: list[dict], latency_ms: int) -> int | None:
+    retrieved_ids = [ctx.get('capture_id') for ctx in contexts if ctx.get('capture_id') is not None]
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO rag_sessions
+               (ts, scene_type, user_query, retrieved_ids, prompt_used, llm_response, latency_ms)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                int(time.time() * 1000),
+                'monitor',
+                query,
+                json.dumps(retrieved_ids, ensure_ascii=False),
+                prompt_used,
+                answer,
+                latency_ms,
+            ),
+        )
+        session_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return session_id
+    except Exception as exc:
+        logger.warning("RAG 会话落库失败: %s", exc)
+        return None
+
+
+def get_rag_pipeline():
+    """懒加载 RAG pipeline，共用 7071 服务暴露 /query。"""
+    global _rag_pipeline
+    if _rag_pipeline is None:
+        logger.info("初始化 RAG pipeline...")
+        from embedding.model import EmbeddingModel
+        from rag.retriever import VectorRetriever, KnowledgeFts5Retriever, Fts5Retriever
+        from rag.llm.ollama import OllamaBackend
+        from rag.pipeline import RagPipeline
+
+        db_path = str(Path.home() / ".memory-bread" / "memory-bread.db")
+        qdrant_path = str(Path.home() / ".qdrant")
+
+        _rag_pipeline = RagPipeline(
+            embedding_model=EmbeddingModel.create_default(),
+            vector_retriever=VectorRetriever(
+                collection="memory_bread_captures",
+                qdrant_path=qdrant_path,
+            ),
+            fts5_retriever=Fts5Retriever(db_path=db_path),
+            knowledge_retriever=KnowledgeFts5Retriever(db_path=db_path),
+            llm=OllamaBackend(model="qwen2.5:3b"),
+            top_k=5,
+        )
+        logger.info("RAG pipeline 初始化完成")
+    return _rag_pipeline
 
 
 def _model_to_dict(meta, status_info: dict) -> dict:
@@ -221,6 +285,76 @@ def set_api_key():
         return jsonify({'status': 'ok', 'message': f'{provider} API Key 已设置'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/query', methods=['POST'])
+def rag_query():
+    """RAG 查询接口，与模型管理 API 共用 7071 端口。"""
+    start_ms = int(time.time() * 1000)
+    query = None
+    top_k = 5
+    try:
+        data = request.get_json()
+        if not data or 'query' not in data:
+            return jsonify({'error': '缺少 query 参数'}), 400
+
+        query = data['query']
+        top_k = data.get('top_k', 5)
+        logger.info(f"收到 RAG 查询: {query}")
+
+        pipeline = get_rag_pipeline()
+        result = pipeline.query(query, top_k=top_k)
+
+        contexts = [
+            {
+                'capture_id': chunk.capture_id,
+                'doc_key': chunk.doc_key,
+                'text': chunk.text,
+                'score': chunk.score,
+                'source': chunk.metadata.get('source_type') or chunk.source,
+                'source_type': chunk.metadata.get('source_type') or chunk.source,
+                'knowledge_id': chunk.metadata.get('knowledge_id'),
+                'app_name': chunk.metadata.get('app_name'),
+                'win_title': chunk.metadata.get('win_title'),
+                'time': chunk.metadata.get('time') or chunk.metadata.get('ts') or chunk.metadata.get('end_time') or chunk.metadata.get('start_time'),
+            }
+            for chunk in result.contexts
+        ]
+
+        prompt_used = pipeline._build_context(result.contexts)
+        latency_ms = int(time.time() * 1000) - start_ms
+        session_id = _save_rag_session(query, prompt_used, result.answer, contexts, latency_ms)
+
+        completion_tokens = result.tokens or estimate_tokens(result.answer)
+        prompt_tokens = estimate_tokens(f"工作记录上下文：\n{prompt_used}\n\n用户问题：{query}")
+        log_llm_usage(
+            caller='rag',
+            model_name=result.model or 'unknown',
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            latency_ms=latency_ms,
+            caller_id=str(session_id) if session_id is not None else None,
+        )
+
+        return jsonify({
+            'answer': result.answer,
+            'contexts': contexts,
+            'model': result.model,
+        })
+    except Exception as e:
+        latency_ms = int(time.time() * 1000) - start_ms
+        if query:
+            log_llm_usage(
+                caller='rag',
+                model_name='qwen2.5:3b',
+                prompt_tokens=estimate_tokens(query),
+                completion_tokens=0,
+                latency_ms=latency_ms,
+                status='failed',
+                error_msg=str(e),
+            )
+        logger.error(f"RAG 查询失败: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 
 # ── 内部工具 ──────────────────────────────────────────────────────────────────

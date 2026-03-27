@@ -6,7 +6,6 @@
 
 import logging
 import sqlite3
-import time
 import uuid
 from typing import List, Dict, Any, Optional
 from pathlib import Path
@@ -89,73 +88,126 @@ class VectorStorage:
     ) -> bool:
         """
         存储向量到 Qdrant 和 SQLite
-        
+
         Args:
             capture_id: 采集记录 ID
             text: 原始文本
             vector: 向量数据
             metadata: 额外元数据（app_name, timestamp 等）
-            
+
         Returns:
             是否成功
         """
         try:
-            # 1. 生成 point_id
+            metadata = dict(metadata or {})
             point_id = str(uuid.uuid4())
-            
-            # 2. 写入 Qdrant
+            source_type = metadata.get("source_type") or "capture"
+            knowledge_id = metadata.get("knowledge_id")
+            doc_key = metadata.get("doc_key")
+            if not doc_key:
+                doc_key = f"knowledge:{knowledge_id}" if source_type == "knowledge" and knowledge_id is not None else f"capture:{capture_id}"
+
+            if source_type == "knowledge":
+                time_value = metadata.get("end_time") or metadata.get("start_time")
+            else:
+                time_value = metadata.get("ts") or metadata.get("timestamp")
+
+            payload = {
+                "doc_key": doc_key,
+                "source_type": source_type,
+                "capture_id": capture_id,
+                "knowledge_id": knowledge_id,
+                "time": time_value,
+                "ts": metadata.get("ts") or metadata.get("timestamp"),
+                "start_time": metadata.get("start_time"),
+                "end_time": metadata.get("end_time"),
+                "observed_at": metadata.get("observed_at"),
+                "event_time_start": metadata.get("event_time_start"),
+                "event_time_end": metadata.get("event_time_end"),
+                "history_view": bool(metadata.get("history_view", False)),
+                "content_origin": metadata.get("content_origin"),
+                "activity_type": metadata.get("activity_type"),
+                "is_self_generated": bool(metadata.get("is_self_generated", False)),
+                "evidence_strength": metadata.get("evidence_strength"),
+                "app_name": metadata.get("app_name"),
+                "win_title": metadata.get("win_title"),
+                "category": metadata.get("category"),
+                "user_verified": bool(metadata.get("user_verified", False)),
+                "text": text[:500],
+            }
+
             qdrant_client = self._get_qdrant_client()
             if qdrant_client:
                 from qdrant_client.models import PointStruct
-                
-                payload = {
-                    "capture_id": capture_id,
-                    "text": text[:500],  # 限制长度
-                    "timestamp": metadata.get("timestamp") if metadata else None,
-                    "app_name": metadata.get("app_name") if metadata else None,
-                }
-                
+
                 point = PointStruct(
                     id=point_id,
                     vector=vector,
                     payload=payload,
                 )
-                
+
                 qdrant_client.upsert(
                     collection_name=self._collection_name,
                     points=[point],
                 )
-                
+
                 logger.debug(f"向量已写入 Qdrant: {point_id}")
             else:
                 logger.warning("Qdrant 不可用，降级为仅写 SQLite vector_index")
 
-            # 3. 写入 SQLite vector_index 表
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
+
             cursor.execute(
                 """
-                INSERT INTO vector_index 
-                (capture_id, qdrant_point_id, chunk_index, chunk_text, model_name, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO vector_index
+                (capture_id, qdrant_point_id, chunk_index, chunk_text, model_name, created_at,
+                 doc_key, source_type, knowledge_id, time, start_time, end_time,
+                 observed_at, event_time_start, event_time_end, history_view,
+                 content_origin, activity_type, is_self_generated, evidence_strength,
+                 app_name, win_title, category, user_verified)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     capture_id,
                     point_id,
-                    0,  # chunk_index
+                    int(metadata.get("chunk_index", 0)),
                     text,
-                    "bge-m3",
-                    int(metadata.get("timestamp", 0)) if metadata else 0,
+                    metadata.get("model_name", "bge-m3"),
+                    int(time_value or 0),
+                    doc_key,
+                    source_type,
+                    knowledge_id,
+                    time_value,
+                    metadata.get("start_time"),
+                    metadata.get("end_time"),
+                    metadata.get("observed_at"),
+                    metadata.get("event_time_start"),
+                    metadata.get("event_time_end"),
+                    1 if metadata.get("history_view") else 0,
+                    metadata.get("content_origin"),
+                    metadata.get("activity_type"),
+                    1 if metadata.get("is_self_generated") else 0,
+                    metadata.get("evidence_strength"),
+                    metadata.get("app_name"),
+                    metadata.get("win_title"),
+                    metadata.get("category"),
+                    1 if metadata.get("user_verified") else 0,
                 ),
             )
-            
+
             conn.commit()
             conn.close()
-            
-            logger.info(f"✅ 向量存储完成: capture_id={capture_id}, point_id={point_id}")
+
+            logger.info(
+                "✅ 向量存储完成: capture_id=%s, doc_key=%s, source_type=%s, point_id=%s",
+                capture_id,
+                doc_key,
+                source_type,
+                point_id,
+            )
             return True
-        
+
         except Exception as e:
             logger.error(f"❌ 向量存储失败: {e}", exc_info=True)
             return False

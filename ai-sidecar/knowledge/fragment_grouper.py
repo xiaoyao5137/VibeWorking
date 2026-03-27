@@ -12,6 +12,17 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+_HISTORY_APP_KEYWORDS = (
+    'wechat', 'wecom', 'feishu', 'slack', 'teams', 'discord',
+    'telegram', 'imessage', 'messages', 'gemini', 'claude', 'chatgpt',
+)
+
+_HISTORY_TEXT_PATTERNS = (
+    '昨天', '前天', '历史消息', '历史记录', '聊天记录', '更早', '回看', '回顾',
+    '历史对话', '上一轮', '上周', '上个月', '昨天的', '前天的', 'earlier', 'history',
+    'previous', 'yesterday', 'last week', 'last month',
+)
+
 # 同一工作流中常见的应用组合（来回切换不算任务切换）
 RELATED_APP_GROUPS = [
     {'Code', 'Cursor', 'VSCode', 'Visual Studio Code', 'Xcode', 'Terminal', 'iTerm2', 'iTerm'},
@@ -189,6 +200,20 @@ class FragmentGrouper:
             # 模糊区域：用上下文辅助判断
             return self._check_context_continuity(current_group, curr_capture)
 
+    def _looks_like_history_review(self, capture: dict) -> bool:
+        app_name = (capture.get('app_name') or '').lower()
+        title = (capture.get('window_title') or '').lower()
+        text = ((capture.get('ax_text') or '') + '\n' + (capture.get('ocr_text') or '')).lower()
+        if not any(keyword in app_name or keyword in title for keyword in _HISTORY_APP_KEYWORDS):
+            return False
+        return any(pattern in text or pattern in title for pattern in _HISTORY_TEXT_PATTERNS)
+
+    def _history_mode_changed(self, current_group: list[dict], new_capture: dict) -> bool:
+        if not current_group:
+            return False
+        prev = current_group[-1]
+        return self._looks_like_history_review(prev) != self._looks_like_history_review(new_capture)
+
     def _check_context_continuity(
         self,
         current_group: list[dict],
@@ -199,6 +224,10 @@ class FragmentGrouper:
         1. 应用回归：新 capture 的 app 在当前片段中出现过（来回切换场景）
         2. 关键词重叠：新 capture 与片段近期内容有2个以上关键词重叠
         """
+        # 历史回看与实时互动切换时强制切片，避免时间语义混片
+        if self._history_mode_changed(current_group, new_capture):
+            return False
+
         # 1. 应用回归
         group_apps = {c.get('app_name') for c in current_group if c.get('app_name')}
         if new_capture.get('app_name') in group_apps:

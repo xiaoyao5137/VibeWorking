@@ -21,6 +21,8 @@ interface KnowledgeEntry {
   user_edited: boolean
   created_at: string
   updated_at: string
+  created_at_ms: number
+  updated_at_ms: number
 }
 
 interface KnowledgePanelProps {
@@ -280,7 +282,7 @@ const KnowledgePanel: React.FC<KnowledgePanelProps> = ({ className = '' }) => {
 
               <div className="knowledge-item__meta">
                 <span className="knowledge-item__time">
-                  {new Date(entry.created_at).toLocaleString('zh-CN', {
+                  {new Date(entry.created_at_ms).toLocaleString('zh-CN', {
                     year: 'numeric',
                     month: '2-digit',
                     day: '2-digit',

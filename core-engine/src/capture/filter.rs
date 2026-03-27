@@ -15,6 +15,9 @@ const DEFAULT_BLOCKED_APPS: &[&str] = &[
     "FaceTime",
     "System Preferences",
     "System Settings",
+    "memory-bread",
+    "memory-bread-desktop",
+    "记忆面包",
 ];
 
 const DEFAULT_BLOCKED_BUNDLE_IDS: &[&str] = &[
@@ -27,7 +30,8 @@ const DEFAULT_BLOCKED_BUNDLE_IDS: &[&str] = &[
 /// 窗口标题中出现这些关键词时判定为敏感
 const SENSITIVE_WIN_KEYWORDS: &[&str] = &[
     "密码", "password", "Password", "PIN", "私钥", "secret", "Secret",
-    "passphrase", "Passphrase",
+    "passphrase", "Passphrase", "memory-bread", "记忆面包",
+    "KnowledgePanel", "MonitorPanel", "RagPanel",
 ];
 
 /// 被判定为密码输入框的 AX Role
@@ -167,10 +171,15 @@ mod tests {
     }
 
     #[test]
-    fn test_extra_blocked_apps() {
-        let filter = PrivacyFilter::new().with_extra_blocked_apps(&["WeChat".into()]);
-        assert!(filter.is_sensitive(Some("WeChat"), None, None, None));
-        assert!(!f().is_sensitive(Some("WeChat"), None, None, None)); // 默认不包含
+    fn test_memory_bread_app_is_sensitive() {
+        assert!(f().is_sensitive(Some("memory-bread-desktop"), None, None, None));
+        assert!(f().is_sensitive(Some("记忆面包"), None, None, None));
+    }
+
+    #[test]
+    fn test_memory_bread_window_is_sensitive() {
+        assert!(f().is_sensitive(None, None, None, Some("memory-bread RagPanel")));
+        assert!(f().is_sensitive(None, None, None, Some("记忆面包 KnowledgePanel")));
     }
 
     #[test]

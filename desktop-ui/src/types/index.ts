@@ -77,12 +77,14 @@ export type WindowMode = 'buddy' | 'rag' | 'knowledge' | 'models' | 'settings' |
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface MonitorOverview {
+  db_size_bytes: number
+  capture_total_count: number
   token_usage: {
     total_period:  number
     total_today:   number
     by_model:      { model: string; total: number; calls: number }[]
     by_caller:     { caller: string; total: number; calls: number }[]
-    trend:         { date: string; tokens: number; calls: number }[]
+    trend:         { ts: number; date: string; tokens: number; calls: number }[]
   }
   capture_flow: {
     today_count:              number
@@ -97,6 +99,12 @@ export interface MonitorOverview {
     by_hour:                  { hour: number; count: number }[]
     by_app:                   { app: string; count: number }[]
     recent:                   { id: number; ts: number; app_name: string; win_title: string }[]
+  }
+  knowledge_flow: {
+    today_count: number
+    period_count: number
+    by_time: { ts: number; count: number }[]
+    recent: { id: number; ts: number; summary: string; category: string; importance: number; app_name: string; win_title: string }[]
   }
   rag_sessions: {
     today_count:    number
@@ -206,29 +214,53 @@ export interface ActiveModels {
 
 
 export interface SystemResources {
-  cpu_trend:    { ts: number; value: number }[]
-  mem_trend:    { ts: number; value: number }[]
-  gpu_trend?:   { ts: number; value: number }[]
-  disk_trend:   { ts: number; read_mb: number; write_mb: number }[]
+  db_size_bytes: number
+  trends: {
+    system_cpu: { ts: number; value: number }[]
+    system_mem: { ts: number; value: number }[]
+    suite_cpu: { ts: number; value: number }[]
+    suite_mem: { ts: number; value: number }[]
+    model_cpu: { ts: number; value: number }[]
+    model_mem: { ts: number; value: number }[]
+  }
+  gpu_trend?: { ts: number; value: number }[]
+  model_gpu_trend?: { ts: number; value: number }[]
+  disk_trend: { ts: number; read_mb: number; write_mb: number }[]
+  knowledge_events?: { ts: number; count: number }[]
   model_events: {
-    ts:            number
-    event_type:    string
-    model_type:    string
-    model_name:    string
-    duration_ms:   number | null
-    memory_mb:     number | null
+    ts: number
+    event_type: string
+    model_type: string
+    model_name: string
+    duration_ms: number | null
+    memory_mb: number | null
     mem_before_mb: number | null
-    mem_after_mb:  number | null
-    error_msg:     string | null
+    mem_after_mb: number | null
+    error_msg: string | null
   }[]
   latest: {
-    cpu_total:      number
-    cpu_process:    number
-    mem_total_mb:   number
-    mem_used_mb:    number
-    mem_percent:    number
-    mem_process_mb: number
-    gpu_percent?:   number | null
-    gpu_name?:      string | null
-  } | null
+    system: {
+      cpu_total: number
+      mem_total_mb: number
+      mem_used_mb: number
+      mem_percent: number
+      gpu_percent?: number | null
+      gpu_name?: string | null
+      gpu_total_label?: string | null
+    } | null
+    suite: {
+      cpu_percent: number
+      mem_process_mb: number
+      process_count: number
+      coverage_status?: string | null
+      coverage_note?: string | null
+    } | null
+    model: {
+      cpu_percent: number
+      mem_process_mb: number
+      process_count: number
+      coverage_status?: string | null
+      coverage_note?: string | null
+    } | null
+  }
 }

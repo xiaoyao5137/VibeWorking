@@ -5,6 +5,8 @@ import { useAppStore } from '../store/useAppStore'
 const API = 'http://localhost:7070'
 
 const EMPTY_OVERVIEW: MonitorOverview = {
+  db_size_bytes: 0,
+  capture_total_count: 0,
   token_usage: {
     total_period: 0,
     total_today: 0,
@@ -24,6 +26,12 @@ const EMPTY_OVERVIEW: MonitorOverview = {
     knowledge_rate: 0,
     by_hour: [],
     by_app: [],
+    recent: [],
+  },
+  knowledge_flow: {
+    today_count: 0,
+    period_count: 0,
+    by_time: [],
     recent: [],
   },
   rag_sessions: {
@@ -63,6 +71,13 @@ function fmt(n: number): string {
   return String(n)
 }
 
+function fmtBytes(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${bytes} B`
+}
+
 function fmtTs(ms: number): string {
   return new Date(ms).toLocaleString('zh-CN', {
     month: '2-digit',
@@ -82,6 +97,70 @@ function fmtAxisTs(ms: number): string {
   })
 }
 
+type OverviewRange = '1d' | '7d' | '30d'
+type SystemRange = '1h' | '6h' | '24h'
+
+function getOverviewBucketLabel(range: OverviewRange): string {
+  if (range === '1d') return '约 1 小时'
+  if (range === '7d') return '约 6 小时'
+  return '约 1 天'
+}
+
+function getKnowledgeBucketLabel(range: OverviewRange): string {
+  if (range === '1d') return '约 5 分钟'
+  if (range === '7d') return '约 1 小时'
+  return '约 1 天'
+}
+
+function getTrendTitle(title: string, bucketLabel: string): string {
+  return `${title}（${bucketLabel}）`
+}
+
+function getKnowledgeTrendLabel(range: OverviewRange): string {
+  return getTrendTitle('知识提炼趋势', getKnowledgeBucketLabel(range))
+}
+
+function getSystemBucketLabel(range: SystemRange): string {
+  if (range === '1h') return '约 1 分钟'
+  if (range === '6h') return '约 3 分钟'
+  return '约 12 分钟'
+}
+
+function fmtOverviewAxisTs(ms: number, range: OverviewRange): string {
+  const date = new Date(Number(ms))
+  if (Number.isNaN(date.getTime())) return '—'
+  if (range === '1d') {
+    return date.toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+  }
+  return date.toLocaleDateString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+  })
+}
+
+function fmtSystemAxisTs(ms: number, range: SystemRange): string {
+  const date = new Date(Number(ms))
+  if (Number.isNaN(date.getTime())) return '—'
+  if (range === '24h') {
+    return date.toLocaleString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+  }
+  return date.toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
+
 function fmtMs(ms: number | null): string {
   if (!ms) return '—'
   if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`
@@ -90,48 +169,75 @@ function fmtMs(ms: number | null): string {
 
 // ── 迷你折线图（纯 SVG）────────────────────────────────────────────────────
 type LinePoint = { ts: number; value: number }
+type MultiLineSeries = {
+  label: string
+  color: string
+  data: LinePoint[]
+  valueFormatter?: (value: number) => string
+}
 
 const SparkLine: React.FC<{
-  data: LinePoint[]
-  color: string
+  data?: LinePoint[]
+  series?: MultiLineSeries[]
+  color?: string
   height?: number
   valueFormatter?: (value: number) => string
   axisFormatter?: (ts: number) => string
   detailFormatter?: (point: LinePoint) => string
 }> = ({
   data,
-  color,
+  series,
+  color = '#007AFF',
   height = 40,
   valueFormatter = (value) => String(value),
   axisFormatter = fmtAxisTs,
   detailFormatter,
 }) => {
+  const normalizedSeries = (series && series.length > 0)
+    ? series.filter(item => item.data.length > 0)
+    : (data && data.length > 0 ? [{ label: '当前序列', color, data, valueFormatter }] : [])
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
 
-  if (!data.length) return null
+  if (!normalizedSeries.length) return null
 
+  const baseData = normalizedSeries[0].data
   const w = 200
   const h = height
   const pad = 8
-  const max = Math.max(...data.map(d => d.value), 1)
-  const min = Math.min(...data.map(d => d.value), 0)
+  const allValues = normalizedSeries.flatMap(item => item.data.map(d => d.value))
+  const max = Math.max(...allValues, 1)
+  const min = Math.min(...allValues, 0)
   const range = Math.max(max - min, 1)
-  const points = data.map((d, i) => {
-    const x = pad + (i / Math.max(data.length - 1, 1)) * (w - pad * 2)
-    const y = h - pad - ((d.value - min) / range) * (h - pad * 2)
-    return { ...d, x, y }
+  const axisValueFormatter = normalizedSeries[0].valueFormatter || valueFormatter
+
+  const seriesPoints = normalizedSeries.map(item => {
+    const points = item.data.map((d, i) => {
+      const x = pad + (i / Math.max(item.data.length - 1, 1)) * (w - pad * 2)
+      const y = h - pad - ((d.value - min) / range) * (h - pad * 2)
+      return { ...d, x, y }
+    })
+    return {
+      ...item,
+      points,
+      pts: points.map(p => `${p.x},${p.y}`).join(' '),
+      area: `${pad},${h - pad} ${points.map(p => `${p.x},${p.y}`).join(' ')} ${w - pad},${h - pad}`,
+    }
   })
-  const pts = points.map(p => `${p.x},${p.y}`).join(' ')
-  const area = `${pad},${h - pad} ${pts} ${w - pad},${h - pad}`
-  const hoverPoint = hoverIndex !== null ? points[hoverIndex] : null
+
+  const maxLength = Math.max(...normalizedSeries.map(item => item.data.length), 0)
+  const safeHoverIndex = hoverIndex !== null ? Math.min(hoverIndex, Math.max(maxLength - 1, 0)) : null
+  const hoverPoints = safeHoverIndex !== null
+    ? seriesPoints.map(item => item.points[Math.min(safeHoverIndex, item.points.length - 1)]).filter(Boolean)
+    : []
+  const hoverAxisTs = hoverPoints[0]?.ts ?? baseData[baseData.length - 1]?.ts ?? 0
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 6 }}>
         <div style={{ width: 34, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontSize: 9, color: '#AEAEB2', textAlign: 'right', paddingTop: 2, paddingBottom: 22 }}>
-          <span>{valueFormatter(max)}</span>
-          <span>{valueFormatter((max + min) / 2)}</span>
-          <span>{valueFormatter(min)}</span>
+          <span>{axisValueFormatter(max)}</span>
+          <span>{axisValueFormatter((max + min) / 2)}</span>
+          <span>{axisValueFormatter(min)}</span>
         </div>
         <div style={{ flex: 1 }}>
           <svg
@@ -142,43 +248,63 @@ const SparkLine: React.FC<{
             onMouseLeave={() => setHoverIndex(null)}
           >
             <defs>
-              <linearGradient id={`grad-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-                <stop offset="100%" stopColor={color} stopOpacity="0.02" />
-              </linearGradient>
+              {seriesPoints.map(item => (
+                <linearGradient key={item.color} id={`grad-${item.color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={item.color} stopOpacity="0.22" />
+                  <stop offset="100%" stopColor={item.color} stopOpacity="0.01" />
+                </linearGradient>
+              ))}
             </defs>
-            <polygon points={area} fill={`url(#grad-${color.replace('#', '')})`} />
-            <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
-            {points.map((p, i) => (
-              <circle
-                key={i}
-                cx={p.x}
-                cy={p.y}
-                r={6}
-                fill="transparent"
-                onMouseEnter={() => setHoverIndex(i)}
-              />
+            {seriesPoints.map((item, idx) => (
+              <g key={`${item.label}-${item.color}`}>
+                {idx === 0 && <polygon points={item.area} fill={`url(#grad-${item.color.replace('#', '')})`} />}
+                <polyline points={item.pts} fill="none" stroke={item.color} strokeWidth="1.5" strokeLinejoin="round" />
+              </g>
             ))}
-            {hoverPoint && (
-              <>
-                <line x1={hoverPoint.x} y1={pad} x2={hoverPoint.x} y2={h - pad} stroke={color} strokeOpacity="0.35" strokeDasharray="2 2" />
-                <circle cx={hoverPoint.x} cy={hoverPoint.y} r={3} fill={color} />
-              </>
+            {baseData.map((_, i) => {
+              const x = pad + (i / Math.max(baseData.length - 1, 1)) * (w - pad * 2)
+              return (
+                <rect
+                  key={i}
+                  x={x - 6}
+                  y={0}
+                  width={12}
+                  height={h}
+                  fill="transparent"
+                  onMouseEnter={() => setHoverIndex(i)}
+                />
+              )
+            })}
+            {hoverPoints.length > 0 && (
+              <line x1={hoverPoints[0].x} y1={pad} x2={hoverPoints[0].x} y2={h - pad} stroke={hoverPoints[0] ? '#AEAEB2' : color} strokeOpacity="0.35" strokeDasharray="2 2" />
             )}
+            {hoverPoints.map((point, idx) => (
+              <circle key={`${point.ts}-${idx}`} cx={point.x} cy={point.y} r={3} fill={seriesPoints[idx].color} />
+            ))}
           </svg>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10, color: '#AEAEB2' }}>
-            <span>{axisFormatter(data[0].ts)}</span>
-            <span>{axisFormatter(data[Math.floor(data.length / 2)].ts)}</span>
-            <span>{axisFormatter(data[data.length - 1].ts)}</span>
+            <span>{axisFormatter(baseData[0].ts)}</span>
+            <span>{axisFormatter(baseData[Math.floor(baseData.length / 2)].ts)}</span>
+            <span>{axisFormatter(baseData[baseData.length - 1].ts)}</span>
           </div>
         </div>
       </div>
       <div style={{ fontSize: 11, color: '#6E6E73', marginTop: 6, minHeight: 16 }}>
-        {hoverPoint
-          ? (detailFormatter ? detailFormatter(hoverPoint) : `${fmtTs(hoverPoint.ts)} · ${valueFormatter(hoverPoint.value)}`)
-          : (detailFormatter
-              ? detailFormatter(data[data.length - 1])
-              : `最近: ${fmtTs(data[data.length - 1].ts)} · ${valueFormatter(data[data.length - 1].value)}`)}
+        {normalizedSeries.length === 1
+          ? (() => {
+              const singleData = normalizedSeries[0].data
+              const singleHoverPoint = safeHoverIndex !== null ? singleData[Math.min(safeHoverIndex, singleData.length - 1)] : null
+              return singleHoverPoint
+                ? (detailFormatter ? detailFormatter(singleHoverPoint) : `${fmtTs(singleHoverPoint.ts)} · ${valueFormatter(singleHoverPoint.value)}`)
+                : (detailFormatter
+                    ? detailFormatter(singleData[singleData.length - 1])
+                    : `最近: ${fmtTs(singleData[singleData.length - 1].ts)} · ${valueFormatter(singleData[singleData.length - 1].value)}`)
+            })()
+          : `${safeHoverIndex !== null ? fmtTs(hoverAxisTs) : `最近: ${fmtTs(hoverAxisTs)}`} · ${normalizedSeries.map((item) => {
+              const point = item.data[Math.min(safeHoverIndex ?? item.data.length - 1, item.data.length - 1)]
+              const formatter = item.valueFormatter || valueFormatter
+              return `${item.label} ${formatter(point.value)}`
+            }).join(' · ')}`}
       </div>
     </div>
   )
@@ -246,7 +372,7 @@ const StatCard: React.FC<{
 )
 
 // ── 总览内容 ─────────────────────────────────────────────────────────────────
-const OverviewContent: React.FC<{ data: MonitorOverview }> = ({ data }) => {
+const OverviewContent: React.FC<{ data: MonitorOverview; range: OverviewRange }> = ({ data, range }) => {
   const token_usage = {
     ...EMPTY_OVERVIEW.token_usage,
     ...(data?.token_usage ?? {}),
@@ -266,12 +392,17 @@ const OverviewContent: React.FC<{ data: MonitorOverview }> = ({ data }) => {
     ...(data?.rag_sessions ?? {}),
     recent: data?.rag_sessions?.recent ?? [],
   }
+  const knowledge_flow = {
+    ...EMPTY_OVERVIEW.knowledge_flow,
+    ...(data?.knowledge_flow ?? {}),
+    by_time: data?.knowledge_flow?.by_time ?? [],
+    recent: data?.knowledge_flow?.recent ?? [],
+  }
   const task_executions = {
     ...EMPTY_OVERVIEW.task_executions,
     ...(data?.task_executions ?? {}),
     recent: data?.task_executions?.recent ?? [],
   }
-  const trendValues = token_usage.trend.map(t => t.tokens)
   return (
     <>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -279,6 +410,10 @@ const OverviewContent: React.FC<{ data: MonitorOverview }> = ({ data }) => {
           sub={`今日 ${fmt(token_usage.total_today)}`} color="#007AFF" />
         <StatCard label="采集记录" value={fmt(capture_flow.period_count)}
           sub={`可处理 ${fmt(capture_flow.eligible_count)} · 今日 ${capture_flow.today_count}`} color="#34C759" />
+        <StatCard label="总采集数" value={fmt(data?.capture_total_count ?? 0)}
+          sub={`数据库 ${fmtBytes(data?.db_size_bytes ?? 0)}`} color="#32ADE6" />
+        <StatCard label="知识提炼" value={fmt(knowledge_flow.period_count)}
+          sub={`今日 ${fmt(knowledge_flow.today_count)}`} color="#BF5AF2" />
         <StatCard label="向量化率" value={`${(capture_flow.vectorization_rate * 100).toFixed(0)}%`}
           sub={`已入索引 ${fmt(capture_flow.vectorized_count)}/${fmt(capture_flow.eligible_count)}`} color="#5E5CE6" />
         <StatCard label="知识化率" value={`${(capture_flow.knowledge_generation_rate * 100).toFixed(0)}%`}
@@ -288,22 +423,44 @@ const OverviewContent: React.FC<{ data: MonitorOverview }> = ({ data }) => {
       </div>
 
       <div style={cardStyle}>
-        <div style={sectionTitle}>Token 用量趋势</div>
-        {trendValues.length > 1 ? (
+        <div style={sectionTitle}>{getTrendTitle('Token 用量趋势', getOverviewBucketLabel(range))}</div>
+        {token_usage.trend.length > 0 ? (
           <>
             <SparkLine
-              data={token_usage.trend.map((t, i) => ({ ts: i, value: t.tokens }))}
+              data={token_usage.trend.map((t) => ({ ts: t.ts, value: t.tokens }))}
               color="#007AFF"
               height={50}
               valueFormatter={(value) => `${fmt(value)} tokens`}
-              axisFormatter={(index) => token_usage.trend[index]?.date || ''}
+              axisFormatter={(ts) => fmtOverviewAxisTs(ts, range)}
               detailFormatter={(point) => {
-                const item = token_usage.trend[point.ts]
-                return item ? `${item.date} · ${fmt(item.tokens)} tokens · ${item.calls} 次` : ''
+                const item = token_usage.trend.find((entry) => entry.ts === point.ts)
+                return item ? `${fmtTs(item.ts)} · ${fmt(item.tokens)} tokens · ${item.calls} 次` : ''
               }}
             />
+            {token_usage.trend.length === 1 && (
+              <div style={{ color: '#AEAEB2', fontSize: 11, marginTop: 6 }}>当前时间范围内仅 1 个统计点，已按真实数据展示。</div>
+            )}
           </>
         ) : <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>暂无趋势数据</div>}
+      </div>
+
+      <div style={cardStyle}>
+        <div style={sectionTitle}>{getKnowledgeTrendLabel(range)}</div>
+        {knowledge_flow.by_time.length > 0 ? (
+          <>
+            <SparkLine
+              data={knowledge_flow.by_time.map((t) => ({ ts: t.ts, value: t.count }))}
+              color="#BF5AF2"
+              height={50}
+              valueFormatter={(value) => `${value} 条`}
+              axisFormatter={(ts) => fmtOverviewAxisTs(ts, range)}
+              detailFormatter={(point) => `${fmtTs(point.ts)} · ${point.value} 条知识`}
+            />
+            {knowledge_flow.by_time.length === 1 && (
+              <div style={{ color: '#AEAEB2', fontSize: 11, marginTop: 6 }}>当前时间范围内仅 1 个统计点，已按真实数据展示。</div>
+            )}
+          </>
+        ) : <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>暂无知识趋势数据</div>}
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -414,6 +571,25 @@ const OverviewContent: React.FC<{ data: MonitorOverview }> = ({ data }) => {
           ))}
       </div>
 
+      <div style={cardStyle}>
+        <div style={sectionTitle}>最近知识提炼记录</div>
+        {knowledge_flow.recent.length === 0
+          ? <div style={{ color: '#AEAEB2', fontSize: 12 }}>暂无知识记录</div>
+          : knowledge_flow.recent.map((item, i) => (
+            <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0',
+              borderBottom: i < knowledge_flow.recent.length - 1 ? '1px solid rgba(0,0,0,0.05)' : 'none' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.summary || '无摘要'}</div>
+                <div style={{ fontSize: 11, color: '#AEAEB2', marginTop: 2 }}>{fmtTs(item.ts)}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+                {!!item.app_name && <span style={{ fontSize: 11, color: '#6E6E73', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.app_name}</span>}
+                <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: 'rgba(191,90,242,0.10)', color: '#BF5AF2' }}>{item.category}</span>
+              </div>
+            </div>
+          ))}
+      </div>
+
       <div style={{ ...cardStyle, marginBottom: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <span style={sectionTitle as any}>定时任务执行记录</span>
@@ -442,70 +618,202 @@ const OverviewContent: React.FC<{ data: MonitorOverview }> = ({ data }) => {
 }
 
 // ── 系统资源内容 ──────────────────────────────────────────────────────────────
-const SystemContent: React.FC<{ data: SystemResources | null }> = ({ data }) => {
+const formatCoverageText = (note?: string | null, status?: string | null) => {
+  if (note && note.trim()) return note
+  if (status === 'exact') return '覆盖完整'
+  if (status === 'partial') return '部分识别'
+  if (status === 'unavailable') return '未识别到进程'
+  return '状态未知'
+}
+
+const SystemContent: React.FC<{ data: SystemResources | null; range: SystemRange }> = ({ data, range }) => {
   if (!data) return <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '24px 0' }}>暂无数据</div>
-  const { latest, cpu_trend, mem_trend, disk_trend, model_events } = data
+  const { latest, disk_trend, model_events, trends } = data
+  const knowledgeEvents = data.knowledge_events ?? []
+  const gpuTrend = data.gpu_trend ?? []
+  const modelGpuTrend = data.model_gpu_trend ?? []
+  const system = latest.system
+  const suite = latest.suite
+  const model = latest.model
+  const systemMemSub = system ? `${Math.round(system.mem_percent)}% · ${system.mem_used_mb.toLocaleString()} / ${system.mem_total_mb.toLocaleString()} MB` : ''
+  const eventPageSize = 10
+  const [eventPage, setEventPage] = useState(1)
+  const totalEventPages = Math.max(1, Math.ceil(model_events.length / eventPageSize))
+  const pagedModelEvents = model_events.slice((eventPage - 1) * eventPageSize, eventPage * eventPageSize)
+
+  useEffect(() => {
+    setEventPage(1)
+  }, [range, model_events.length])
+
+  const renderTrendCard = (
+    title: string,
+    series: { ts: number; value: number }[],
+    color: string,
+    formatter: (value: number) => string,
+    emptyText = '暂无数据',
+  ) => (
+    <div style={cardStyle}>
+      <div style={sectionTitle}>{getTrendTitle(title, getSystemBucketLabel(range))}</div>
+      {series.length > 0
+        ? <>
+            <SparkLine
+              data={series}
+              color={color}
+              height={50}
+              valueFormatter={formatter}
+              axisFormatter={(ts) => fmtSystemAxisTs(ts, range)}
+            />
+            {series.length === 1 && <div style={{ color: '#AEAEB2', fontSize: 11, marginTop: 6 }}>当前范围仅 1 个采样点。</div>}
+          </>
+        : <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>{emptyText}</div>}
+    </div>
+  )
+
+  const renderDualTrendCard = (
+    title: string,
+    lines: Array<{ label: string; color: string; data: { ts: number; value: number }[]; formatter: (value: number) => string }>,
+    emptyText = '暂无数据',
+  ) => {
+    const available = lines.filter(line => line.data.length > 0)
+    if (available.length === 0) {
+      return (
+        <div style={cardStyle}>
+          <div style={sectionTitle}>{getTrendTitle(title, getSystemBucketLabel(range))}</div>
+          <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>{emptyText}</div>
+        </div>
+      )
+    }
+
+    return (
+      <div style={cardStyle}>
+        <div style={sectionTitle}>{getTrendTitle(title, getSystemBucketLabel(range))}</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+          {available.map((line) => (
+            <span key={line.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#6E6E73' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: line.color, display: 'inline-block' }} />
+              {line.label}
+            </span>
+          ))}
+        </div>
+        <SparkLine
+          series={available.map((line) => ({
+            label: line.label,
+            color: line.color,
+            data: line.data,
+            valueFormatter: line.formatter,
+          }))}
+          height={54}
+          axisFormatter={(ts) => fmtSystemAxisTs(ts, range)}
+        />
+        {available.every((line) => line.data.length === 1) && (
+          <div style={{ color: '#AEAEB2', fontSize: 11, marginTop: 6 }}>当前范围仅 1 个采样点。</div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <>
-      {/* 当前快照卡片 */}
-      {latest && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-          <StatCard label="CPU 总体" value={`${latest.cpu_total.toFixed(1)}%`}
-            sub={`进程 ${latest.cpu_process.toFixed(1)}%`} color="#FF9500" />
-          <StatCard label="内存使用" value={`${latest.mem_percent.toFixed(1)}%`}
-            sub={`${latest.mem_used_mb.toLocaleString()} / ${latest.mem_total_mb.toLocaleString()} MB`} color="#007AFF" />
-          <StatCard label="进程内存" value={`${latest.mem_process_mb} MB`} color="#AF52DE" />
-          {(latest.gpu_percent != null || latest.gpu_name) && (
-            <StatCard
-              label="GPU 状态"
-              value={latest.gpu_percent != null ? `${latest.gpu_percent.toFixed(1)}%` : '已检测'}
-              sub={latest.gpu_name || 'GPU'}
-              color="#34C759"
-            />
-          )}
-        </div>
-      )}
-
-      {/* CPU 趋势 */}
-      <div style={cardStyle}>
-        <div style={sectionTitle}>CPU 使用率趋势</div>
-        {cpu_trend.length > 1
-          ? <SparkLine
-              data={cpu_trend}
-              color="#FF9500"
-              height={50}
-              valueFormatter={(value) => `${value.toFixed(1)}%`}
-            />
-          : <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>暂无数据</div>}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        {system && (
+          <>
+            <StatCard label="系统 CPU" value={`${system.cpu_total.toFixed(1)}%`} color="#FF9500" />
+            <StatCard label="系统内存" value={`${system.mem_percent.toFixed(1)}%`}
+              sub={systemMemSub} color="#007AFF" />
+            {(system.gpu_percent != null || system.gpu_name) && (
+              <StatCard
+                label="系统 GPU"
+                value={system.gpu_percent != null ? `${system.gpu_percent.toFixed(1)}%` : '已检测'}
+                sub={system.gpu_total_label || system.gpu_name || 'GPU'}
+                color="#34C759"
+              />
+            )}
+          </>
+        )}
+        {suite && (
+          <>
+            <StatCard label="整套 CPU" value={`${suite.cpu_percent.toFixed(1)}%`}
+              sub={`${suite.process_count} 个进程`} color="#AF52DE" />
+            <StatCard label="整套内存" value={`${suite.mem_process_mb} MB`}
+              sub={formatCoverageText(suite.coverage_note, suite.coverage_status)} color="#BF5AF2" />
+          </>
+        )}
+        {model && (
+          <>
+            <StatCard label="模型 CPU" value={`${model.cpu_percent.toFixed(1)}%`}
+              sub={`${model.process_count} 个进程`} color="#FF3B30" />
+            <StatCard label="模型内存" value={`${model.mem_process_mb} MB`}
+              sub={formatCoverageText(model.coverage_note, model.coverage_status)} color="#FF2D55" />
+          </>
+        )}
+        <StatCard label="数据库大小" value={fmtBytes(data.db_size_bytes)} color="#32ADE6" />
       </div>
 
-      {/* 内存趋势 */}
+      {renderDualTrendCard('CPU 趋势（系统 vs 整套软件 vs 模型）', [
+        { label: '系统', color: '#FF9500', data: trends.system_cpu, formatter: (value) => `${value.toFixed(1)}%` },
+        { label: '整套软件', color: '#AF52DE', data: trends.suite_cpu, formatter: (value) => `${value.toFixed(1)}%` },
+        { label: '模型', color: '#FF3B30', data: trends.model_cpu, formatter: (value) => `${value.toFixed(1)}%` },
+      ], '暂无 CPU 趋势数据')}
+      {renderDualTrendCard('内存趋势（系统 vs 整套软件 vs 模型）', [
+        { label: '系统', color: '#007AFF', data: trends.system_mem, formatter: (value) => `${value.toFixed(1)}%` },
+        { label: '整套软件', color: '#BF5AF2', data: trends.suite_mem, formatter: (value) => `${value.toFixed(0)} MB` },
+        { label: '模型', color: '#FF2D55', data: trends.model_mem, formatter: (value) => `${value.toFixed(0)} MB` },
+      ], '暂无内存趋势数据')}
+
       <div style={cardStyle}>
-        <div style={sectionTitle}>内存使用率趋势</div>
-        {mem_trend.length > 1
-          ? <SparkLine
-              data={mem_trend}
-              color="#007AFF"
+        <div style={sectionTitle}>{getTrendTitle('GPU 趋势（系统 vs 模型）', getSystemBucketLabel(range))}</div>
+        {(gpuTrend.length > 0 || modelGpuTrend.length > 0) ? (
+          <>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+              {gpuTrend.length > 0 && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#6E6E73' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#34C759', display: 'inline-block' }} />
+                  系统
+                </span>
+              )}
+              {modelGpuTrend.length > 0 && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#6E6E73' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF2D55', display: 'inline-block' }} />
+                  模型
+                </span>
+              )}
+            </div>
+            <SparkLine
+              series={[
+                ...(gpuTrend.length > 0 ? [{ label: '系统', color: '#34C759', data: gpuTrend, valueFormatter: (value: number) => `${value.toFixed(1)}%` }] : []),
+                ...(modelGpuTrend.length > 0 ? [{ label: '模型', color: '#FF2D55', data: modelGpuTrend, valueFormatter: (value: number) => `${value.toFixed(1)}%` }] : []),
+              ]}
               height={50}
-              valueFormatter={(value) => `${value.toFixed(1)}%`}
+              axisFormatter={(ts) => fmtSystemAxisTs(ts, range)}
             />
-          : <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>暂无数据</div>}
+            <div style={{ marginTop: 8, fontSize: 11, color: '#6E6E73' }}>
+              GPU 总体：{system?.gpu_total_label || system?.gpu_name || '未检测'}
+            </div>
+            {gpuTrend.length <= 1 && modelGpuTrend.length <= 1 && (
+              <div style={{ color: '#AEAEB2', fontSize: 11, marginTop: 6 }}>当前范围仅 1 个 GPU 采样点。</div>
+            )}
+          </>
+        ) : (
+          <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>
+            {system?.gpu_name ? `已检测到 ${system.gpu_name}，但当前范围内暂无 GPU 利用率采样。` : '当前设备未返回 GPU 利用率数据'}
+          </div>
+        )}
       </div>
 
-      {/* GPU 趋势 */}
-      {data.gpu_trend && data.gpu_trend.length > 1 && (
+      {knowledgeEvents.length > 0 && (
         <div style={cardStyle}>
-          <div style={sectionTitle}>GPU 使用率趋势</div>
-          <SparkLine
-            data={data.gpu_trend}
-            color="#34C759"
-            height={50}
-            valueFormatter={(value) => `${value.toFixed(1)}%`}
-          />
+          <div style={sectionTitle}>知识提炼触发与资源时间轴</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+            {knowledgeEvents.map((item, index) => (
+              <span key={`${item.ts}-${index}`} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(191,90,242,0.10)', color: '#BF5AF2' }}>
+                {fmtAxisTs(item.ts)} · {item.count} 条
+              </span>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: '#AEAEB2' }}>结合系统 / 整套软件 / 模型趋势，可观察知识提炼触发时段与资源波动关系。</div>
         </div>
       )}
 
-      {/* 磁盘 IO */}
       <div style={cardStyle}>
         <div style={sectionTitle}>磁盘 IO（MB）</div>
         {disk_trend.length > 1 ? (
@@ -518,6 +826,7 @@ const SystemContent: React.FC<{ data: SystemResources | null }> = ({ data }) => 
                   color="#34C759"
                   height={40}
                   valueFormatter={(value) => `${value.toFixed(2)} MB`}
+                  axisFormatter={(ts) => fmtSystemAxisTs(ts, range)}
                 />
               </div>
               <div style={{ flex: 1 }}>
@@ -527,6 +836,7 @@ const SystemContent: React.FC<{ data: SystemResources | null }> = ({ data }) => 
                   color="#FF3B30"
                   height={40}
                   valueFormatter={(value) => `${value.toFixed(2)} MB`}
+                  axisFormatter={(ts) => fmtSystemAxisTs(ts, range)}
                 />
               </div>
             </div>
@@ -534,14 +844,30 @@ const SystemContent: React.FC<{ data: SystemResources | null }> = ({ data }) => 
         ) : <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>暂无数据</div>}
       </div>
 
-      {/* 模型事件 */}
       <div style={{ ...cardStyle, marginBottom: 0 }}>
-        <div style={sectionTitle}>模型加载/卸载事件</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+          <span style={sectionTitle as any}>模型加载/卸载事件</span>
+          {model_events.length > eventPageSize && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button
+                onClick={() => setEventPage((page) => Math.max(1, page - 1))}
+                disabled={eventPage === 1}
+                style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', background: eventPage === 1 ? '#F2F2F7' : 'white', color: '#6E6E73', cursor: eventPage === 1 ? 'default' : 'pointer' }}
+              >上一页</button>
+              <span style={{ fontSize: 11, color: '#6E6E73' }}>{eventPage} / {totalEventPages}</span>
+              <button
+                onClick={() => setEventPage((page) => Math.min(totalEventPages, page + 1))}
+                disabled={eventPage === totalEventPages}
+                style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', background: eventPage === totalEventPages ? '#F2F2F7' : 'white', color: '#6E6E73', cursor: eventPage === totalEventPages ? 'default' : 'pointer' }}
+              >下一页</button>
+            </div>
+          )}
+        </div>
         {model_events.length === 0
           ? <div style={{ color: '#AEAEB2', fontSize: 12 }}>暂无事件</div>
-          : model_events.map((e, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
-              borderBottom: i < model_events.length - 1 ? '1px solid rgba(0,0,0,0.05)' : 'none' }}>
+          : pagedModelEvents.map((e, i) => (
+            <div key={`${e.ts}-${e.model_name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
+              borderBottom: i < pagedModelEvents.length - 1 ? '1px solid rgba(0,0,0,0.05)' : 'none' }}>
               <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, flexShrink: 0,
                 background: `${EVENT_COLOR[e.event_type] || '#6E6E73'}18`,
                 color: EVENT_COLOR[e.event_type] || '#6E6E73' }}>
@@ -586,8 +912,8 @@ const MonitorPanel: React.FC = () => {
   const [tab, setTab] = useState<'overview' | 'system'>('overview')
   const [data, setData] = useState<MonitorOverview | null>(null)
   const [sysData, setSysData] = useState<SystemResources | null>(null)
-  const [range, setRange] = useState<'1d' | '7d' | '30d'>('7d')
-  const [sysRange, setSysRange] = useState<'1h' | '6h' | '24h'>('6h')
+  const [range, setRange] = useState<OverviewRange>('7d')
+  const [sysRange, setSysRange] = useState<SystemRange>('6h')
   const [loading, setLoading] = useState(false)
   const [overviewError, setOverviewError] = useState<string | null>(null)
   const [systemError, setSystemError] = useState<string | null>(null)
@@ -680,11 +1006,11 @@ const MonitorPanel: React.FC = () => {
       {tab === 'overview' && overviewError && <ErrorNotice message={`${overviewError}，请检查 API 地址或确认 Core Engine 已启动`} />}
       {tab === 'system' && systemError && <ErrorNotice message={`${systemError}，请检查 API 地址或确认 Core Engine 已启动`} />}
 
-      {tab === 'overview' && data && <OverviewContent data={data} />}
+      {tab === 'overview' && data && <OverviewContent data={data} range={range} />}
       {tab === 'overview' && !data && !overviewError && !loading && (
         <div style={{ color: '#AEAEB2', fontSize: 12, textAlign: 'center', padding: '24px 0' }}>暂无监控数据</div>
       )}
-      {tab === 'system' && <SystemContent data={sysData} />}
+      {tab === 'system' && <SystemContent data={sysData} range={sysRange} />}
 
     </div>
   )

@@ -18,6 +18,27 @@ from knowledge.fragment_grouper import FragmentGrouper
 
 logger = logging.getLogger(__name__)
 
+_SELF_GENERATED_APP_KEYWORDS = (
+    "memory-bread",
+    "记忆面包",
+)
+
+_SELF_GENERATED_WINDOW_KEYWORDS = (
+    "memory-bread",
+    "记忆面包",
+    "KnowledgePanel",
+    "MonitorPanel",
+    "RagPanel",
+)
+
+
+def _is_self_generated_capture(app_name: str | None, window_title: str | None) -> bool:
+    app_lower = (app_name or "").lower()
+    title_lower = (window_title or "").lower()
+    return any(keyword in app_lower for keyword in _SELF_GENERATED_APP_KEYWORDS) or any(
+        keyword.lower() in title_lower for keyword in _SELF_GENERATED_WINDOW_KEYWORDS
+    )
+
 
 class BackgroundProcessor:
     """后台任务处理器"""
@@ -80,6 +101,7 @@ class BackgroundProcessor:
                 'window_title': r[3], 'ocr_text': r[4], 'ax_text': r[5],
             }
             for r in rows
+            if not _is_self_generated_capture(r[2], r[3])
         ]
 
     def _get_fragment_grouper(self):
@@ -108,8 +130,31 @@ class BackgroundProcessor:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO knowledge_entries
-            (capture_id, summary, overview, details, entities, category, importance, occurrence_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (
+                capture_id,
+                summary,
+                overview,
+                details,
+                entities,
+                category,
+                importance,
+                occurrence_count,
+                capture_ids,
+                start_time,
+                end_time,
+                duration_minutes,
+                frag_app_name,
+                frag_win_title,
+                observed_at,
+                event_time_start,
+                event_time_end,
+                history_view,
+                content_origin,
+                activity_type,
+                is_self_generated,
+                evidence_strength
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             primary_capture_id,
             overview,
@@ -119,6 +164,20 @@ class BackgroundProcessor:
             knowledge.get('category', '其他'),
             knowledge.get('importance', 3),
             knowledge.get('occurrence_count', 1),
+            capture_ids_raw,
+            knowledge.get('start_time'),
+            knowledge.get('end_time'),
+            knowledge.get('duration_minutes'),
+            knowledge.get('frag_app_name'),
+            knowledge.get('frag_win_title'),
+            knowledge.get('observed_at') or knowledge.get('end_time') or knowledge.get('start_time'),
+            knowledge.get('event_time_start'),
+            knowledge.get('event_time_end'),
+            int(bool(knowledge.get('history_view', False))),
+            knowledge.get('content_origin'),
+            knowledge.get('activity_type'),
+            int(bool(knowledge.get('is_self_generated', False))),
+            knowledge.get('evidence_strength'),
         ))
         conn.commit()
         return cursor.lastrowid
@@ -193,6 +252,8 @@ class BackgroundProcessor:
             self._mark_captures_processed(conn, capture_ids, knowledge_id)
             conn.close()
 
+            await self._process_knowledge_vectorization(group, knowledge_id, knowledge)
+
             logger.info(
                 f"✅ 片段提炼完成: {len(group)} captures → knowledge_id={knowledge_id}, "
                 f"时长={knowledge.get('duration_minutes')}分钟"
@@ -206,13 +267,57 @@ class BackgroundProcessor:
     async def _process_vectorization_batch(self, group: list[dict]):
         """对一组 captures 批量向量化"""
         for capture in group:
-            text = capture.get('ocr_text') or capture.get('ax_text') or ''
+            text = self._build_capture_embedding_text(capture)
             if text:
-                await self._process_vectorization(capture['id'], text)
+                await self._process_vectorization(capture, text)
                 await asyncio.sleep(0.1)
 
-    async def _process_vectorization(self, capture_id: int, text: str):
+    @staticmethod
+    def _build_capture_embedding_text(capture: dict) -> str:
+        parts: list[str] = []
+        if capture.get('app_name'):
+            parts.append(f"应用：{capture['app_name']}")
+        if capture.get('window_title'):
+            parts.append(f"窗口：{capture['window_title']}")
+        if capture.get('ocr_text'):
+            parts.append(f"OCR：{capture['ocr_text']}")
+        if capture.get('ax_text'):
+            parts.append(f"AX：{capture['ax_text']}")
+        return "\n".join(part for part in parts if part)
+
+    @staticmethod
+    def _build_knowledge_embedding_text(group: list[dict], knowledge: dict) -> str:
+        try:
+            entities_raw = knowledge.get('entities') or '[]'
+            if isinstance(entities_raw, str):
+                entities = json.loads(entities_raw) if entities_raw else []
+            else:
+                entities = entities_raw
+        except Exception:
+            entities = []
+
+        parts: list[str] = []
+        overview = knowledge.get('overview') or knowledge.get('summary')
+        if overview:
+            parts.append(f"概述：{overview}")
+        if knowledge.get('details'):
+            parts.append(f"详情：{knowledge['details']}")
+        if entities:
+            parts.append(f"实体：{'、'.join(str(entity) for entity in entities if entity)}")
+        if knowledge.get('frag_app_name'):
+            parts.append(f"应用：{knowledge['frag_app_name']}")
+        if knowledge.get('frag_win_title'):
+            parts.append(f"窗口：{knowledge['frag_win_title']}")
+        if group:
+            evidence = [capture.get('window_title') or capture.get('app_name') or '' for capture in group[:3]]
+            evidence = [item for item in evidence if item]
+            if evidence:
+                parts.append(f"证据：{' | '.join(evidence)}")
+        return "\n".join(parts)
+
+    async def _process_vectorization(self, capture: dict, text: str):
         """处理单条记录的向量化"""
+        capture_id = capture['id']
         try:
             worker = self._get_embed_worker()
 
@@ -232,7 +337,6 @@ class BackgroundProcessor:
             response = await worker.handle(req)
 
             if response.status == "ok":
-                # 向量化成功后，写入 Qdrant 和 SQLite
                 from embedding.vector_storage import get_vector_storage
 
                 vectors = response.result.vectors
@@ -243,7 +347,12 @@ class BackgroundProcessor:
                         text=text,
                         vector=vectors[0],
                         metadata={
+                            "doc_key": f"capture:{capture_id}",
+                            "source_type": "capture",
+                            "ts": capture.get('ts') or req.ts,
                             "timestamp": req.ts,
+                            "app_name": capture.get('app_name'),
+                            "win_title": capture.get('window_title'),
                         }
                     )
 
@@ -262,6 +371,63 @@ class BackgroundProcessor:
 
         except Exception as e:
             logger.error(f"❌ 向量化异常: capture_id={capture_id}, error={e}")
+            return False
+
+    async def _process_knowledge_vectorization(self, group: list[dict], knowledge_id: int, knowledge: dict) -> bool:
+        """对知识条目执行向量化并写入向量索引。"""
+        try:
+            text = self._build_knowledge_embedding_text(group, knowledge)
+            if not text:
+                return False
+
+            worker = self._get_embed_worker()
+            from memory_bread_ipc import IpcRequest, EmbedRequest
+            from embedding.vector_storage import get_vector_storage
+
+            primary_capture_id = group[0]['id'] if group else int(knowledge.get('capture_id') or 0)
+            embed_req = EmbedRequest(
+                capture_id=primary_capture_id,
+                texts=[text],
+            )
+            req = IpcRequest(
+                id=f"bg_knowledge_{knowledge_id}",
+                ts=int(time.time() * 1000),
+                task=embed_req,
+            )
+            response = await worker.handle(req)
+            if response.status != "ok" or not response.result.vectors:
+                logger.warning("知识向量化失败: knowledge_id=%s error=%s", knowledge_id, response.error)
+                return False
+
+            success = get_vector_storage().store_vector(
+                capture_id=primary_capture_id,
+                text=text,
+                vector=response.result.vectors[0],
+                metadata={
+                    "doc_key": f"knowledge:{knowledge_id}",
+                    "source_type": "knowledge",
+                    "knowledge_id": knowledge_id,
+                    "start_time": knowledge.get('start_time'),
+                    "end_time": knowledge.get('end_time'),
+                    "observed_at": knowledge.get('observed_at') or knowledge.get('end_time') or knowledge.get('start_time'),
+                    "event_time_start": knowledge.get('event_time_start'),
+                    "event_time_end": knowledge.get('event_time_end'),
+                    "history_view": knowledge.get('history_view', False),
+                    "content_origin": knowledge.get('content_origin'),
+                    "activity_type": knowledge.get('activity_type'),
+                    "is_self_generated": knowledge.get('is_self_generated', False),
+                    "evidence_strength": knowledge.get('evidence_strength'),
+                    "app_name": knowledge.get('frag_app_name') or (group[0].get('app_name') if group else None),
+                    "win_title": knowledge.get('frag_win_title') or (group[0].get('window_title') if group else None),
+                    "category": knowledge.get('category', '其他'),
+                    "user_verified": False,
+                },
+            )
+            if success:
+                logger.info("✅ 知识向量化完成: knowledge_id=%s", knowledge_id)
+            return success
+        except Exception as exc:
+            logger.warning("知识向量化异常: knowledge_id=%s error=%s", knowledge_id, exc)
             return False
 
     async def _process_knowledge_extraction(self, capture_data: dict):
@@ -285,8 +451,12 @@ class BackgroundProcessor:
 
                 cursor.execute("""
                     INSERT INTO knowledge_entries
-                    (capture_id, summary, overview, details, entities, category, importance, occurrence_count)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (
+                        capture_id, summary, overview, details, entities, category, importance, occurrence_count,
+                        observed_at, event_time_start, event_time_end, history_view, content_origin,
+                        activity_type, is_self_generated, evidence_strength
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     capture_data['id'],
                     overview,  # 保持向后兼容
@@ -295,7 +465,15 @@ class BackgroundProcessor:
                     knowledge.get('entities', '[]'),
                     knowledge.get('category', '其他'),
                     knowledge.get('importance', 3),
-                    knowledge.get('occurrence_count', 1)
+                    knowledge.get('occurrence_count', 1),
+                    knowledge.get('observed_at') or capture_data.get('ts'),
+                    knowledge.get('event_time_start'),
+                    knowledge.get('event_time_end'),
+                    int(bool(knowledge.get('history_view', False))),
+                    knowledge.get('content_origin'),
+                    knowledge.get('activity_type'),
+                    int(bool(knowledge.get('is_self_generated', False))),
+                    knowledge.get('evidence_strength'),
                 ))
 
                 conn.commit()

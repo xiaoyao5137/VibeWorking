@@ -133,44 +133,6 @@ async fn fallback_keyword_search(
             }
         }
 
-        // 如果知识库结果不足，从采集记录补充
-        if contexts.len() < top_k {
-            let remaining = top_k - contexts.len();
-            let capture_query = "SELECT id, ocr_text, ax_text
-                 FROM captures
-                 WHERE ocr_text LIKE ? OR ax_text LIKE ?
-                 ORDER BY ts DESC
-                 LIMIT ?";
-
-            if let Ok(mut stmt) = conn.prepare(capture_query) {
-                if let Ok(rows) = stmt.query_map(
-                    [&search_pattern, &search_pattern, &remaining.to_string()],
-                    |row| {
-                        let ocr_text: Option<String> = row.get(1).ok();
-                        let ax_text: Option<String> = row.get(2).ok();
-
-                        let text = ocr_text
-                            .or(ax_text)
-                            .unwrap_or_default()
-                            .chars()
-                            .take(500)
-                            .collect::<String>();
-
-                        Ok(RagContext {
-                            capture_id: row.get(0)?,
-                            text,
-                            score: 1.0,
-                            source: "capture".to_string(),
-                        })
-                    },
-                ) {
-                    for row in rows.flatten() {
-                        contexts.push(row);
-                    }
-                }
-            }
-        }
-
         let answer = if contexts.is_empty() {
             format!("抱歉，我在工作记录中没有找到与「{}」相关的信息。", query)
         } else {

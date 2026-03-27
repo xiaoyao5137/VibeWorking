@@ -117,8 +117,9 @@ async def _main() -> None:
                 dispatch_fn = limited_dispatch
                 bg_processor = None
             else:
-                from dispatcher import Dispatcher
+                from dispatcher_v2 import Dispatcher
                 d = Dispatcher()
+                await d.initialize()
                 dispatch_fn = d.dispatch
                 logger.info("生产模式：使用完整任务分发器")
 

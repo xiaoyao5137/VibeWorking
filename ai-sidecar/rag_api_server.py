@@ -72,15 +72,21 @@ def rag_query():
 
         # 执行 RAG 查询
         pipeline = get_rag_pipeline()
-        result = pipeline.query(query)
+        result = pipeline.query(query, top_k=top_k)
 
         # 转换为 JSON 格式
         contexts = [
             {
                 'capture_id': chunk.capture_id,
+                'doc_key': chunk.doc_key,
                 'text': chunk.text,
                 'score': chunk.score,
                 'source': chunk.source,
+                'source_type': chunk.metadata.get('source_type') or chunk.source,
+                'knowledge_id': chunk.metadata.get('knowledge_id'),
+                'app_name': chunk.metadata.get('app_name'),
+                'win_title': chunk.metadata.get('win_title'),
+                'time': chunk.metadata.get('time') or chunk.metadata.get('ts') or chunk.metadata.get('end_time') or chunk.metadata.get('start_time'),
             }
             for chunk in result.contexts
         ]

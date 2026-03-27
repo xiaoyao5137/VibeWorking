@@ -29,26 +29,30 @@ def reciprocal_rank_fusion(
     Returns:
         合并并重新排序的 RetrievedChunk 列表（source="merged"）
     """
-    rrf_scores: dict[int, float]         = {}
-    best_chunk: dict[int, RetrievedChunk] = {}
+    rrf_scores: dict[str, float] = {}
+    best_chunk: dict[str, RetrievedChunk] = {}
 
     for results in result_lists:
         for rank, chunk in enumerate(results):
-            cid = chunk.capture_id
-            rrf_scores[cid] = rrf_scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
-            # 保留原始分数最高的 chunk 作为内容代表
-            if cid not in best_chunk or chunk.score > best_chunk[cid].score:
-                best_chunk[cid] = chunk
+            doc_key = chunk.doc_key or chunk.metadata.get("doc_key") or f"capture:{chunk.capture_id}"
+            rrf_scores[doc_key] = rrf_scores.get(doc_key, 0.0) + 1.0 / (k + rank + 1)
+            if doc_key not in best_chunk or chunk.score > best_chunk[doc_key].score:
+                best_chunk[doc_key] = chunk
 
-    sorted_ids = sorted(rrf_scores, key=lambda cid: rrf_scores[cid], reverse=True)[:top_k]
+    sorted_doc_keys = sorted(rrf_scores, key=lambda doc_key: rrf_scores[doc_key], reverse=True)[:top_k]
 
     return [
         RetrievedChunk(
-            capture_id = cid,
-            text       = best_chunk[cid].text,
-            score      = rrf_scores[cid],
-            source     = "merged",
-            metadata   = best_chunk[cid].metadata,
+            capture_id=best_chunk[doc_key].capture_id,
+            text=best_chunk[doc_key].text,
+            score=rrf_scores[doc_key],
+            source="merged",
+            doc_key=doc_key,
+            metadata={
+                **best_chunk[doc_key].metadata,
+                "doc_key": doc_key,
+                "source_type": best_chunk[doc_key].metadata.get("source_type", best_chunk[doc_key].source),
+            },
         )
-        for cid in sorted_ids
+        for doc_key in sorted_doc_keys
     ]

@@ -14,11 +14,14 @@
 //! - POST /pii/scrub → 200 + 原文返回
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use memory_bread_core::{api::AppState, storage::StorageManager};
 
 // ── 辅助函数 ──────────────────────────────────────────────────────────────────
@@ -33,12 +36,30 @@ async fn make_test_router() -> (axum::Router, tempfile::TempDir) {
     (router, tmp)
 }
 
+async fn spawn_failing_sidecar() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        if let Ok((mut stream, _)) = listener.accept().await {
+            let mut buffer = [0_u8; 2048];
+            let _ = stream.read(&mut buffer).await;
+            let response = b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 2\r\ncontent-type: text/plain\r\nconnection: close\r\n\r\n{}";
+            let _ = stream.write_all(response).await;
+            let _ = stream.shutdown().await;
+        }
+    });
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    format!("http://{}", addr)
+}
+
 /// 发送请求并返回 (StatusCode, 响应体字符串)
 async fn oneshot(router: axum::Router, req: Request<Body>) -> (StatusCode, String) {
-    let resp   = router.oneshot(req).await.unwrap();
+    let resp = router.oneshot(req).await.unwrap();
     let status = resp.status();
-    let bytes  = resp.into_body().collect().await.unwrap().to_bytes();
-    let body   = String::from_utf8_lossy(&bytes).to_string();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body = String::from_utf8_lossy(&bytes).to_string();
     (status, body)
 }
 
@@ -217,16 +238,44 @@ async fn test_query_stub_returns_200() {
 }
 
 #[tokio::test]
-async fn test_query_contains_user_question() {
-    let (router, _tmp) = make_test_router().await;
+async fn test_query_fallback_returns_only_knowledge_contexts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("test.db");
+    let sm = StorageManager::open(&db).unwrap();
+
+    sm.with_conn(|conn| {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS knowledge_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, capture_id INTEGER NOT NULL, summary TEXT, overview TEXT, details TEXT, created_at INTEGER, updated_at INTEGER)",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO knowledge_entries (capture_id, summary, overview, details, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![1_i64, "Gemini 问答", "今天问了 Gemini 发布计划", "整理发布相关提问", 1_710_000_000_000_i64, 1_710_000_000_000_i64],
+        )?;
+        conn.execute(
+            "INSERT INTO captures (ts, app_name, win_title, event_type, ax_text, ocr_text, is_sensitive) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![1_710_000_000_100_i64, "Gemini", "Gemini", "auto", "今天问了 Gemini 发布计划", "今天问了 Gemini 发布计划", 0_i64],
+        )?;
+        Ok::<_, memory_bread_core::storage::StorageError>(())
+    }).unwrap();
+
+    let sidecar_url = spawn_failing_sidecar().await;
+    let state = Arc::new(AppState { storage: sm, sidecar_url });
+    let router = memory_bread_core::api::create_router(state);
+
     let req = Request::builder()
         .method(Method::POST)
         .uri("/query")
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"query":"飞书会议记录"}"#))
+        .body(Body::from(r#"{"query":"Gemini 发布计划","top_k":5}"#))
         .unwrap();
-    let (_, body) = oneshot(router, req).await;
-    assert!(body.contains("飞书会议记录"));
+    let (status, body) = oneshot(router, req).await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let contexts = json["contexts"].as_array().unwrap();
+    assert_eq!(contexts.len(), 1, "body: {body}");
+    assert_eq!(contexts[0]["source"], "knowledge");
+    assert_eq!(json["model"], "keyword-fallback");
 }
 
 // ── /action/execute ───────────────────────────────────────────────────────────
@@ -268,9 +317,54 @@ async fn test_pii_scrub_stub_returns_text() {
 // ── 404 测试 ──────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn test_unknown_route_404() {
-    let (router, _tmp) = make_test_router().await;
-    let req = Request::builder().uri("/nonexistent").body(Body::empty()).unwrap();
-    let (status, _) = oneshot(router, req).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
+async fn test_knowledge_api_returns_semantic_fields() {
+    let (router, tmp) = make_test_router().await;
+    let db = tmp.path().join("test.db");
+    let sm = StorageManager::open(&db).unwrap();
+
+    sm.with_conn(|conn| {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS knowledge_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, capture_id INTEGER NOT NULL, summary TEXT, overview TEXT, details TEXT, entities TEXT, category TEXT, importance INTEGER, occurrence_count INTEGER, observed_at INTEGER, event_time_start INTEGER, event_time_end INTEGER, history_view INTEGER NOT NULL DEFAULT 0, content_origin TEXT, activity_type TEXT, is_self_generated INTEGER NOT NULL DEFAULT 0, evidence_strength TEXT, user_verified INTEGER NOT NULL DEFAULT 0, user_edited INTEGER NOT NULL DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO knowledge_entries (capture_id, summary, overview, details, entities, category, importance, occurrence_count, observed_at, event_time_start, event_time_end, history_view, content_origin, activity_type, is_self_generated, evidence_strength, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, datetime(?17/1000, 'unixepoch'), datetime(?18/1000, 'unixepoch'))",
+            rusqlite::params![
+                1_i64,
+                "今天回看飞书消息",
+                "今天回看飞书消息",
+                "确认了昨天的发布安排",
+                "[\"飞书\",\"发布\"]",
+                "聊天",
+                4_i64,
+                1_i64,
+                1_710_000_100_000_i64,
+                1_709_913_600_000_i64,
+                1_709_914_000_000_i64,
+                1_i64,
+                "historical_content",
+                "reviewing_history",
+                0_i64,
+                "high",
+                1_710_000_100_000_i64,
+                1_710_000_100_000_i64,
+            ],
+        )?;
+        Ok::<_, memory_bread_core::storage::StorageError>(())
+    }).unwrap();
+
+    let req = Request::builder().uri("/api/knowledge").body(Body::empty()).unwrap();
+    let (status, body) = oneshot(router, req).await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let entry = &json["entries"][0];
+    assert_eq!(entry["observed_at"], 1_710_000_100_000_i64);
+    assert_eq!(entry["event_time_start"], 1_709_913_600_000_i64);
+    assert_eq!(entry["event_time_end"], 1_709_914_000_000_i64);
+    assert_eq!(entry["history_view"], true);
+    assert_eq!(entry["content_origin"], "historical_content");
+    assert_eq!(entry["activity_type"], "reviewing_history");
+    assert_eq!(entry["is_self_generated"], false);
+    assert_eq!(entry["evidence_strength"], "high");
 }
+

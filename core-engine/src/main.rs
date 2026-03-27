@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(AppState {
         storage: storage.clone(),
         sidecar_url: std::env::var("SIDECAR_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:8001".to_string()),
+            .unwrap_or_else(|_| "http://127.0.0.1:7071".to_string()),
     });
 
     // 启动采集引擎
@@ -70,9 +70,8 @@ async fn main() -> anyhow::Result<()> {
 
     // 启动资源监控器
     tracing::info!("启动资源监控器...");
-    let monitor_storage = storage.clone();
     tokio::spawn(async move {
-        ResourceMonitor::new(enabled, monitor_storage).start().await;
+        ResourceMonitor::new(enabled).start().await;
     });
 
     // 启动定时任务调度器

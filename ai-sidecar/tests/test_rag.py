@@ -11,6 +11,8 @@ RAG 模块测试
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from embedding.base  import EmbeddingBackend, EmbeddingVector
@@ -18,7 +20,7 @@ from embedding.model import EmbeddingModel
 from rag.llm.base    import LlmBackend, LlmResponse
 from rag.llm.ollama  import OllamaBackend
 from rag.pipeline    import RagPipeline, RagResult
-from rag.retriever   import Fts5Retriever, RetrievedChunk, VectorRetriever
+from rag.retriever   import Fts5Retriever, KnowledgeFts5Retriever, RetrievedChunk, VectorRetriever, VectorSearchFilter
 from rag.reranker    import reciprocal_rank_fusion
 
 
@@ -71,9 +73,42 @@ class MockFts5Retriever:
     def __init__(self, chunks: list[RetrievedChunk] | None = None) -> None:
         self._chunks    = chunks or []
         self.call_count = 0
+        self.last_kwargs: dict = {}
 
-    def search(self, query: str, top_k: int = 10) -> list[RetrievedChunk]:
+    def search(
+        self,
+        query: str,
+        top_k: int = 10,
+        start_ts: int | None = None,
+        end_ts: int | None = None,
+        entity_terms: list[str] | None = None,
+        observed_start_ts: int | None = None,
+        observed_end_ts: int | None = None,
+        event_start_ts: int | None = None,
+        event_end_ts: int | None = None,
+        activity_types: list[str] | None = None,
+        content_origins: list[str] | None = None,
+        history_view: bool | None = None,
+        is_self_generated: bool | None = None,
+        evidence_strengths: list[str] | None = None,
+    ) -> list[RetrievedChunk]:
         self.call_count += 1
+        self.last_kwargs = {
+            "query": query,
+            "top_k": top_k,
+            "start_ts": start_ts,
+            "end_ts": end_ts,
+            "entity_terms": entity_terms,
+            "observed_start_ts": observed_start_ts,
+            "observed_end_ts": observed_end_ts,
+            "event_start_ts": event_start_ts,
+            "event_end_ts": event_end_ts,
+            "activity_types": activity_types,
+            "content_origins": content_origins,
+            "history_view": history_view,
+            "is_self_generated": is_self_generated,
+            "evidence_strengths": evidence_strengths,
+        }
         return self._chunks[:top_k]
 
 
@@ -87,36 +122,143 @@ class MockVectorRetriever:
         self._chunks    = chunks or []
         self._available = available
         self.call_count = 0
+        self.last_kwargs: dict = {}
 
     def is_available(self) -> bool:
         return self._available
 
-    def search(self, query_vector: list[float], top_k: int = 10) -> list[RetrievedChunk]:
+    def search(
+        self,
+        query_vector: list[float],
+        top_k: int = 10,
+        score_threshold: float = 0.3,
+        filters: VectorSearchFilter | None = None,
+    ) -> list[RetrievedChunk]:
         self.call_count += 1
+        self.last_kwargs = {
+            "query_vector": query_vector,
+            "top_k": top_k,
+            "score_threshold": score_threshold,
+            "filters": filters,
+        }
         return self._chunks[:top_k]
 
     def upsert(self, *args, **kwargs) -> bool:
         return True
 
 
-def _chunk(cid: int, score: float = 0.5, source: str = "fts5") -> RetrievedChunk:
-    return RetrievedChunk(capture_id=cid, text=f"内容-{cid}", score=score, source=source)
+def _chunk(
+    cid: int,
+    score: float = 0.5,
+    source: str = "fts5",
+    doc_key: str | None = None,
+    metadata: dict | None = None,
+) -> RetrievedChunk:
+    return RetrievedChunk(
+        capture_id=cid,
+        text=f"内容-{cid}",
+        score=score,
+        source=source,
+        doc_key=doc_key,
+        metadata=metadata,
+    )
 
 
 def _make_pipeline(
-    fts_chunks:    list[RetrievedChunk] | None = None,
+    fts_chunks: list[RetrievedChunk] | None = None,
+    knowledge_chunks: list[RetrievedChunk] | None = None,
     vector_chunks: list[RetrievedChunk] | None = None,
-    llm_response:  str                         = "测试回答",
-    embed_raise:   Exception | None            = None,
-    top_k:         int                         = 3,
+    llm_response: str = "测试回答",
+    embed_raise: Exception | None = None,
+    top_k: int = 3,
 ) -> RagPipeline:
     return RagPipeline(
-        embedding_model  = EmbeddingModel(backend=MockEmbeddingBackend(should_raise=embed_raise)),
-        vector_retriever = MockVectorRetriever(chunks=vector_chunks),  # type: ignore[arg-type]
-        fts5_retriever   = MockFts5Retriever(chunks=fts_chunks),       # type: ignore[arg-type]
-        llm              = MockLlmBackend(response=llm_response),
-        top_k            = top_k,
+        embedding_model=EmbeddingModel(backend=MockEmbeddingBackend(should_raise=embed_raise)),
+        vector_retriever=MockVectorRetriever(chunks=vector_chunks),  # type: ignore[arg-type]
+        fts5_retriever=MockFts5Retriever(chunks=fts_chunks),  # type: ignore[arg-type]
+        knowledge_retriever=MockFts5Retriever(chunks=knowledge_chunks),  # type: ignore[arg-type]
+        llm=MockLlmBackend(response=llm_response),
+        top_k=top_k,
     )
+
+
+def _init_captures_db(db_path: str) -> None:
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.executescript(
+        """
+        CREATE TABLE captures (
+            id INTEGER PRIMARY KEY,
+            ts INTEGER NOT NULL,
+            app_name TEXT,
+            win_title TEXT,
+            ocr_text TEXT,
+            ax_text TEXT,
+            input_text TEXT,
+            audio_text TEXT
+        );
+        CREATE VIRTUAL TABLE captures_fts USING fts5(
+            ax_text,
+            ocr_text,
+            input_text,
+            audio_text,
+            content='captures',
+            content_rowid='id'
+        );
+        CREATE TRIGGER captures_fts_insert AFTER INSERT ON captures BEGIN
+            INSERT INTO captures_fts(rowid, ax_text, ocr_text, input_text, audio_text)
+            VALUES (new.id, new.ax_text, new.ocr_text, new.input_text, new.audio_text);
+        END;
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+
+def _init_knowledge_db(db_path: str) -> None:
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.executescript(
+        """
+        CREATE TABLE knowledge_entries (
+            id INTEGER PRIMARY KEY,
+            capture_id INTEGER NOT NULL,
+            summary TEXT,
+            overview TEXT,
+            details TEXT,
+            start_time INTEGER,
+            end_time INTEGER,
+            duration_minutes INTEGER,
+            frag_app_name TEXT,
+            frag_win_title TEXT,
+            entities TEXT,
+            category TEXT,
+            user_verified INTEGER DEFAULT 0,
+            observed_at INTEGER,
+            event_time_start INTEGER,
+            event_time_end INTEGER,
+            history_view INTEGER DEFAULT 0,
+            content_origin TEXT,
+            activity_type TEXT,
+            is_self_generated INTEGER DEFAULT 0,
+            evidence_strength TEXT
+        );
+        CREATE VIRTUAL TABLE knowledge_fts USING fts5(
+            overview,
+            details,
+            entities,
+            content='knowledge_entries',
+            content_rowid='id'
+        );
+        CREATE TRIGGER knowledge_ai AFTER INSERT ON knowledge_entries BEGIN
+            INSERT INTO knowledge_fts(rowid, overview, details, entities)
+            VALUES (new.id, new.overview, new.details, new.entities);
+        END;
+        """
+    )
+    conn.commit()
+    conn.close()
 
 
 # ── RetrievedChunk ────────────────────────────────────────────────────────────
@@ -131,7 +273,7 @@ class TestRetrievedChunk:
 
     def test_default_metadata(self):
         chunk = RetrievedChunk(capture_id=1, text="text")
-        assert chunk.metadata == {}
+        assert chunk.metadata == {"doc_key": "capture:1"}
 
     def test_default_score(self):
         chunk = RetrievedChunk(capture_id=1, text="text")
@@ -140,6 +282,11 @@ class TestRetrievedChunk:
     def test_default_source(self):
         chunk = RetrievedChunk(capture_id=1, text="text")
         assert chunk.source == "unknown"
+
+    def test_default_doc_key_uses_capture_id(self):
+        chunk = RetrievedChunk(capture_id=7, text="text")
+        assert chunk.doc_key == "capture:7"
+        assert chunk.metadata["doc_key"] == "capture:7"
 
 
 # ── RRF ──────────────────────────────────────────────────────────────────────
@@ -176,12 +323,18 @@ class TestRrf:
         assert all(c.score > 0 for c in merged)
 
     def test_deduplication(self):
-        """同一 chunk 出现在两个列表时，合并后只有一条"""
-        list1  = [_chunk(1)]
-        list2  = [_chunk(1)]
+        """同一 doc_key 出现在两个列表时，合并后只有一条"""
+        list1  = [_chunk(1, doc_key="capture:1")]
+        list2  = [_chunk(1, doc_key="capture:1")]
         merged = reciprocal_rank_fusion([list1, list2])
-        cids   = [c.capture_id for c in merged]
-        assert len(cids) == len(set(cids))
+        doc_keys = [c.doc_key for c in merged]
+        assert len(doc_keys) == len(set(doc_keys))
+
+    def test_keeps_capture_and_knowledge_with_same_capture_id(self):
+        capture_chunk = _chunk(1, source="fts5", doc_key="capture:1", metadata={"source_type": "capture", "doc_key": "capture:1"})
+        knowledge_chunk = _chunk(1, source="knowledge", doc_key="knowledge:9", metadata={"source_type": "knowledge", "doc_key": "knowledge:9", "knowledge_id": 9})
+        merged = reciprocal_rank_fusion([[capture_chunk], [knowledge_chunk]], top_k=2)
+        assert {chunk.doc_key for chunk in merged} == {"capture:1", "knowledge:9"}
 
     def test_ranking_by_appearance(self):
         """出现在更多列表的 chunk 排名应更高"""
@@ -218,9 +371,12 @@ class TestRagPipeline:
         assert result.answer == "记忆面包回答"
 
     def test_contexts_included(self):
-        fts = [_chunk(1, 0.9), _chunk(2, 0.7)]
-        pipeline = _make_pipeline(fts_chunks=fts)
-        result   = pipeline.query("工作内容")
+        knowledge = [
+            _chunk(1, 0.9, source="knowledge", doc_key="knowledge:1", metadata={"source_type": "knowledge", "doc_key": "knowledge:1", "knowledge_id": 1}),
+            _chunk(2, 0.7, source="knowledge", doc_key="knowledge:2", metadata={"source_type": "knowledge", "doc_key": "knowledge:2", "knowledge_id": 2}),
+        ]
+        pipeline = _make_pipeline(knowledge_chunks=knowledge)
+        result = pipeline.query("工作内容")
         assert len(result.contexts) >= 1
 
     def test_model_in_result(self):
@@ -230,8 +386,8 @@ class TestRagPipeline:
 
     def test_empty_context_still_answers(self):
         """无上下文时 LLM 仍然被调用"""
-        pipeline = _make_pipeline(fts_chunks=[], vector_chunks=[])
-        result   = pipeline.query("没有上下文的问题")
+        pipeline = _make_pipeline(knowledge_chunks=[], vector_chunks=[])
+        result = pipeline.query("没有上下文的问题")
         assert result.answer is not None
 
     def test_llm_called_once(self):
@@ -246,55 +402,248 @@ class TestRagPipeline:
         assert llm.call_count == 1
 
     def test_top_k_limits_contexts(self):
-        fts      = [_chunk(i, 0.9 - i * 0.05) for i in range(10)]
-        pipeline = _make_pipeline(fts_chunks=fts, top_k=3)
-        result   = pipeline.query("问题")
+        knowledge = [
+            _chunk(i, 0.9 - i * 0.05, source="knowledge", doc_key=f"knowledge:{i}", metadata={"source_type": "knowledge", "doc_key": f"knowledge:{i}", "knowledge_id": i})
+            for i in range(10)
+        ]
+        pipeline = _make_pipeline(knowledge_chunks=knowledge, top_k=3)
+        result = pipeline.query("问题")
         assert len(result.contexts) <= 3
 
+    def test_query_intent_passes_time_and_entity_filters(self):
+        knowledge = MockFts5Retriever(chunks=[_chunk(1, source="knowledge")])
+        vector_r = MockVectorRetriever()
+        llm = MockLlmBackend()
+        pipeline = RagPipeline(
+            embedding_model=EmbeddingModel(backend=MockEmbeddingBackend()),
+            vector_retriever=vector_r,               # type: ignore[arg-type]
+            fts5_retriever=MockFts5Retriever(),      # type: ignore[arg-type]
+            knowledge_retriever=knowledge,           # type: ignore[arg-type]
+            llm=llm,
+        )
+        pipeline.query("我最近使用 gemini 做了什么")
+        assert knowledge.last_kwargs["start_ts"] is not None
+        assert "gemini" in (knowledge.last_kwargs["entity_terms"] or [])
+        filters = vector_r.last_kwargs["filters"]
+        assert filters is not None
+        assert filters.start_ts is not None
+        assert filters.source_types == ["knowledge"]
+        assert "gemini" in (filters.app_names or [])
+
+    def test_chinese_question_extracts_meaningful_terms(self):
+        knowledge = MockFts5Retriever(chunks=[_chunk(1, source="knowledge")])
+        vector_r = MockVectorRetriever()
+        llm = MockLlmBackend()
+        pipeline = RagPipeline(
+            embedding_model=EmbeddingModel(backend=MockEmbeddingBackend()),
+            vector_retriever=vector_r,               # type: ignore[arg-type]
+            fts5_retriever=MockFts5Retriever(),      # type: ignore[arg-type]
+            knowledge_retriever=knowledge,           # type: ignore[arg-type]
+            llm=llm,
+        )
+        pipeline.query("昨天那段知识总结里提到的数据库迁移是什么")
+        entity_terms = knowledge.last_kwargs["entity_terms"] or []
+        assert "数据库" in entity_terms
+        assert "迁移" in entity_terms
+        assert "昨天那段知识总结里提到的数据库迁移是什么" not in entity_terms
+
+    def test_query_intent_applies_ask_ai_policy(self):
+        knowledge = MockFts5Retriever(chunks=[_chunk(1, source="knowledge")])
+        vector_r = MockVectorRetriever()
+        llm = MockLlmBackend()
+        pipeline = RagPipeline(
+            embedding_model=EmbeddingModel(backend=MockEmbeddingBackend()),
+            vector_retriever=vector_r,               # type: ignore[arg-type]
+            fts5_retriever=MockFts5Retriever(),      # type: ignore[arg-type]
+            knowledge_retriever=knowledge,           # type: ignore[arg-type]
+            llm=llm,
+        )
+        pipeline.query("我今天问 Gemini 了什么")
+        assert knowledge.last_kwargs["observed_start_ts"] is not None
+        assert knowledge.last_kwargs["activity_types"] == ["ask_ai"]
+        assert knowledge.last_kwargs["history_view"] is False
+        assert knowledge.last_kwargs["is_self_generated"] is False
+        assert knowledge.last_kwargs["evidence_strengths"] == ["medium", "high"]
+        filters = vector_r.last_kwargs["filters"]
+        assert filters.observed_start_ts is not None
+        assert filters.activity_types == ["ask_ai"]
+        assert filters.history_view is False
+        assert filters.is_self_generated is False
+
+    def test_query_intent_applies_history_policy(self):
+        knowledge = MockFts5Retriever(chunks=[_chunk(1, source="knowledge")])
+        vector_r = MockVectorRetriever()
+        llm = MockLlmBackend()
+        pipeline = RagPipeline(
+            embedding_model=EmbeddingModel(backend=MockEmbeddingBackend()),
+            vector_retriever=vector_r,               # type: ignore[arg-type]
+            fts5_retriever=MockFts5Retriever(),      # type: ignore[arg-type]
+            knowledge_retriever=knowledge,           # type: ignore[arg-type]
+            llm=llm,
+        )
+        pipeline.query("我今天看了什么历史消息")
+        assert knowledge.last_kwargs["observed_start_ts"] is not None
+        assert knowledge.last_kwargs["history_view"] is True
+        assert knowledge.last_kwargs["content_origins"] == ["historical_content"]
+        assert knowledge.last_kwargs["activity_types"] == ["reviewing_history", "chat", "reading"]
+        filters = vector_r.last_kwargs["filters"]
+        assert filters.history_view is True
+        assert filters.content_origins == ["historical_content"]
+
+    def test_build_context_contains_observed_and_event_time(self):
+        llm = MockLlmBackend()
+        chunk = RetrievedChunk(
+            capture_id=1,
+            text="概述：今天回看昨天的飞书消息",
+            score=0.8,
+            source="knowledge",
+            metadata={
+                "source_type": "knowledge",
+                "doc_key": "knowledge:1",
+                "knowledge_id": 1,
+                "observed_at": 1_710_000_100_000,
+                "event_time_start": 1_709_913_600_000,
+                "event_time_end": 1_709_914_000_000,
+                "history_view": True,
+                "activity_type": "reviewing_history",
+                "content_origin": "historical_content",
+            },
+            doc_key="knowledge:1",
+        )
+        pipeline = RagPipeline(
+            embedding_model=EmbeddingModel(backend=MockEmbeddingBackend()),
+            vector_retriever=MockVectorRetriever(),  # type: ignore[arg-type]
+            fts5_retriever=MockFts5Retriever(),      # type: ignore[arg-type]
+            knowledge_retriever=MockFts5Retriever(chunks=[chunk]),  # type: ignore[arg-type]
+            llm=llm,
+        )
+        pipeline.query("我今天看了什么历史消息")
+        assert "看到时间=" in llm.last_prompt
+        assert "事件时间=" in llm.last_prompt
+        assert "历史回看" in llm.last_prompt
+        assert "来源=historical_content" in llm.last_prompt
+
+        llm = MockLlmBackend()
+        chrome_chunk = RetrievedChunk(
+            capture_id=1,
+            text="应用：Google Chrome\n窗口：Claude",
+            score=0.8,
+            source="knowledge",
+            metadata={"source_type": "knowledge", "app_name": "Google Chrome", "doc_key": "knowledge:1", "knowledge_id": 1},
+            doc_key="knowledge:1",
+        )
+        pipeline = RagPipeline(
+            embedding_model=EmbeddingModel(backend=MockEmbeddingBackend()),
+            vector_retriever=MockVectorRetriever(),  # type: ignore[arg-type]
+            fts5_retriever=MockFts5Retriever(),      # type: ignore[arg-type]
+            knowledge_retriever=MockFts5Retriever(chunks=[chrome_chunk]),  # type: ignore[arg-type]
+            llm=llm,
+        )
+        pipeline.query("我最近用Google Chrome了吗")
+        assert "Google Chrome" in llm.last_prompt
+
+    def test_knowledge_context_prioritized_in_prompt(self):
+        llm = MockLlmBackend()
+        pipeline = RagPipeline(
+            embedding_model=EmbeddingModel(backend=MockEmbeddingBackend()),
+            vector_retriever=MockVectorRetriever(chunks=[
+                _chunk(2, source="vector", doc_key="capture:2", metadata={"source_type": "capture", "doc_key": "capture:2"})
+            ]),  # type: ignore[arg-type]
+            fts5_retriever=MockFts5Retriever(chunks=[
+                _chunk(1, source="fts5", doc_key="capture:1", metadata={"source_type": "capture", "doc_key": "capture:1"})
+            ]),        # type: ignore[arg-type]
+            knowledge_retriever=MockFts5Retriever(chunks=[
+                _chunk(3, source="knowledge", doc_key="knowledge:3", metadata={"source_type": "knowledge", "doc_key": "knowledge:3", "knowledge_id": 3})
+            ]),  # type: ignore[arg-type]
+            llm=llm,
+            top_k=3,
+        )
+        pipeline.query("Gemini")
+        first_context_line = llm.last_prompt.splitlines()[1]
+        assert "[knowledge]" in first_context_line
+
+    def test_query_only_keeps_knowledge_contexts(self):
+        llm = MockLlmBackend()
+        pipeline = RagPipeline(
+            embedding_model=EmbeddingModel(backend=MockEmbeddingBackend()),
+            vector_retriever=MockVectorRetriever(chunks=[
+                _chunk(2, source="vector", doc_key="capture:2", metadata={"source_type": "capture", "doc_key": "capture:2"}),
+                _chunk(3, source="vector", doc_key="knowledge:3", metadata={"source_type": "knowledge", "doc_key": "knowledge:3", "knowledge_id": 3}),
+            ]),  # type: ignore[arg-type]
+            fts5_retriever=MockFts5Retriever(chunks=[
+                _chunk(1, source="fts5", doc_key="capture:1", metadata={"source_type": "capture", "doc_key": "capture:1"}),
+            ]),  # type: ignore[arg-type]
+            knowledge_retriever=MockFts5Retriever(chunks=[
+                _chunk(10, source="knowledge", doc_key="knowledge:10", metadata={"source_type": "knowledge", "doc_key": "knowledge:10", "knowledge_id": 10}),
+            ]),  # type: ignore[arg-type]
+            llm=llm,
+            top_k=3,
+        )
+        result = pipeline.query("最近做了什么")
+        assert all(chunk.metadata.get("source_type") == "knowledge" for chunk in result.contexts)
+        assert {chunk.doc_key for chunk in result.contexts} == {"knowledge:10", "knowledge:3"}
+
+    def test_query_uses_runtime_top_k(self):
+        knowledge = [
+            _chunk(i, 0.9 - i * 0.05, source="knowledge", doc_key=f"knowledge:{i}", metadata={"source_type": "knowledge", "doc_key": f"knowledge:{i}", "knowledge_id": i})
+            for i in range(10)
+        ]
+        pipeline = _make_pipeline(knowledge_chunks=knowledge, top_k=5)
+        result = pipeline.query("问题", top_k=2)
+        assert len(result.contexts) <= 2
+
     def test_embedding_failure_degrades_gracefully(self):
-        """embedding 失败应降级为纯 FTS5 检索，不抛异常"""
-        fts      = [_chunk(1, 0.8)]
+        """embedding 失败应降级为纯 knowledge 检索，不抛异常"""
+        knowledge = [
+            _chunk(1, 0.8, source="knowledge", doc_key="knowledge:1", metadata={"source_type": "knowledge", "doc_key": "knowledge:1", "knowledge_id": 1})
+        ]
         pipeline = _make_pipeline(
-            fts_chunks=fts,
+            knowledge_chunks=knowledge,
             embed_raise=RuntimeError("embedding 服务不可用"),
         )
         result = pipeline.query("工作记录")
-        # 应仍然返回 FTS5 结果
         assert result.answer is not None
         assert len(result.contexts) >= 1
+        assert all(chunk.metadata.get("source_type") == "knowledge" for chunk in result.contexts)
 
     def test_prompt_contains_query(self):
-        llm      = MockLlmBackend()
+        llm = MockLlmBackend()
         pipeline = RagPipeline(
-            embedding_model  = EmbeddingModel(backend=MockEmbeddingBackend()),
-            vector_retriever = MockVectorRetriever(),  # type: ignore[arg-type]
-            fts5_retriever   = MockFts5Retriever(),    # type: ignore[arg-type]
-            llm              = llm,
+            embedding_model=EmbeddingModel(backend=MockEmbeddingBackend()),
+            vector_retriever=MockVectorRetriever(),  # type: ignore[arg-type]
+            fts5_retriever=MockFts5Retriever(),      # type: ignore[arg-type]
+            knowledge_retriever=MockFts5Retriever(), # type: ignore[arg-type]
+            llm=llm,
         )
         pipeline.query("今日工作总结")
         assert "今日工作总结" in llm.last_prompt
 
     def test_vector_retriever_used_when_embedding_succeeds(self):
-        vector_r = MockVectorRetriever(chunks=[_chunk(99)])
+        vector_r = MockVectorRetriever(chunks=[
+            _chunk(99, source="vector", doc_key="knowledge:99", metadata={"source_type": "knowledge", "doc_key": "knowledge:99", "knowledge_id": 99})
+        ])
         pipeline = RagPipeline(
-            embedding_model  = EmbeddingModel(backend=MockEmbeddingBackend()),
-            vector_retriever = vector_r,               # type: ignore[arg-type]
-            fts5_retriever   = MockFts5Retriever(),    # type: ignore[arg-type]
-            llm              = MockLlmBackend(),
+            embedding_model=EmbeddingModel(backend=MockEmbeddingBackend()),
+            vector_retriever=vector_r,               # type: ignore[arg-type]
+            fts5_retriever=MockFts5Retriever(),      # type: ignore[arg-type]
+            knowledge_retriever=MockFts5Retriever(), # type: ignore[arg-type]
+            llm=MockLlmBackend(),
         )
         pipeline.query("问题")
         assert vector_r.call_count == 1
+        assert vector_r.last_kwargs["filters"].source_types == ["knowledge"]
 
     def test_vector_retriever_skipped_when_embedding_fails(self):
         """embedding 失败时，向量检索应跳过"""
         vector_r = MockVectorRetriever()
         pipeline = RagPipeline(
-            embedding_model  = EmbeddingModel(
+            embedding_model=EmbeddingModel(
                 backend=MockEmbeddingBackend(should_raise=RuntimeError("embedding 失败"))
             ),
-            vector_retriever = vector_r,               # type: ignore[arg-type]
-            fts5_retriever   = MockFts5Retriever(),    # type: ignore[arg-type]
-            llm              = MockLlmBackend(),
+            vector_retriever=vector_r,               # type: ignore[arg-type]
+            fts5_retriever=MockFts5Retriever(),      # type: ignore[arg-type]
+            knowledge_retriever=MockFts5Retriever(), # type: ignore[arg-type]
+            llm=MockLlmBackend(),
         )
         pipeline.query("问题")
         assert vector_r.call_count == 0
@@ -318,9 +667,112 @@ class TestVectorRetriever:
         results   = retriever.search([], top_k=5)
         assert results == []
 
+    def test_vector_retriever_filter_build_returns_none_for_empty_filter(self):
+        assert VectorRetriever._build_qdrant_filter(VectorSearchFilter()) is None
+
     def test_lazy_init(self):
         retriever = VectorRetriever()
         assert retriever._client is None
+
+
+class TestSqliteRetrievers:
+    def test_fts5_retriever_falls_back_to_app_name_match(self, tmp_path):
+        db_path = str(tmp_path / "captures.db")
+        _init_captures_db(db_path)
+
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO captures (id, ts, app_name, win_title, ocr_text, ax_text, input_text, audio_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (1, 1_710_000_000_000, "Google Chrome", "Claude", "", "", "", ""),
+        )
+        conn.commit()
+        conn.close()
+
+        retriever = Fts5Retriever(db_path)
+        results = retriever.search("我最近用Google Chrome了吗", top_k=5, start_ts=1_700_000_000_000)
+        assert len(results) == 1
+        assert results[0].metadata["app_name"] == "Google Chrome"
+        assert results[0].doc_key == "capture:1"
+
+    def test_fts5_retriever_respects_recent_time_filter(self, tmp_path):
+        db_path = str(tmp_path / "captures.db")
+        _init_captures_db(db_path)
+
+        conn = sqlite3.connect(db_path)
+        conn.executemany(
+            "INSERT INTO captures (id, ts, app_name, win_title, ocr_text, ax_text, input_text, audio_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (1, 1_600_000_000_000, "Google Chrome", "Old", "", "", "", ""),
+                (2, 1_710_000_000_000, "Google Chrome", "Recent", "", "", "", ""),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        retriever = Fts5Retriever(db_path)
+        results = retriever.search("Chrome", top_k=5, start_ts=1_700_000_000_000)
+        assert [chunk.capture_id for chunk in results] == [2]
+
+    def test_knowledge_retriever_filters_history_view_and_activity_type(self, tmp_path):
+        db_path = str(tmp_path / "knowledge.db")
+        _init_knowledge_db(db_path)
+
+        conn = sqlite3.connect(db_path)
+        conn.executemany(
+            "INSERT INTO knowledge_entries (id, capture_id, summary, overview, details, start_time, end_time, duration_minutes, frag_app_name, frag_win_title, entities, category, user_verified, observed_at, event_time_start, event_time_end, history_view, content_origin, activity_type, is_self_generated, evidence_strength) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (1, 100, "今天问 Gemini", "今天问 Gemini 发布计划", "确认发布时间", 1_710_000_000_000, 1_710_000_060_000, 1, "Gemini", "Gemini", "[]", "聊天", 1, 1_710_000_060_000, None, None, 0, "live_interaction", "ask_ai", 0, "high"),
+                (2, 101, "回看历史消息", "今天回看昨天飞书消息", "确认昨天安排", 1_710_000_100_000, 1_710_000_160_000, 1, "Feishu", "项目群", "[]", "聊天", 1, 1_710_000_160_000, 1_709_913_600_000, 1_709_914_000_000, 1, "historical_content", "reviewing_history", 0, "high"),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        retriever = KnowledgeFts5Retriever(db_path)
+        ask_ai_results = retriever.search(
+            "Gemini",
+            top_k=5,
+            observed_start_ts=1_710_000_000_000,
+            observed_end_ts=1_710_000_200_000,
+            activity_types=["ask_ai"],
+            history_view=False,
+            is_self_generated=False,
+            evidence_strengths=["medium", "high"],
+        )
+        assert [chunk.metadata["knowledge_id"] for chunk in ask_ai_results] == [1]
+
+        history_results = retriever.search(
+            "飞书",
+            top_k=5,
+            observed_start_ts=1_710_000_000_000,
+            observed_end_ts=1_710_000_200_000,
+            activity_types=["reviewing_history", "chat", "reading"],
+            content_origins=["historical_content"],
+            history_view=True,
+            is_self_generated=False,
+            evidence_strengths=["medium", "high"],
+        )
+        assert [chunk.metadata["knowledge_id"] for chunk in history_results] == [2]
+
+
+    def test_knowledge_retriever_falls_back_to_frag_app_name_match(self, tmp_path):
+        db_path = str(tmp_path / "knowledge.db")
+        _init_knowledge_db(db_path)
+
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO knowledge_entries (id, capture_id, summary, overview, details, start_time, end_time, duration_minutes, frag_app_name, frag_win_title, entities, category, user_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (1, 100, "浏览器工作", "整理资料", "在 Chrome 中查看文档", 1_710_000_000_000, 1_710_000_060_000, 1, "Google Chrome", "Claude", "[]", "文档", 1),
+        )
+        conn.commit()
+        conn.close()
+
+        retriever = KnowledgeFts5Retriever(db_path)
+        results = retriever.search("我最近用Google Chrome了吗", top_k=5, start_ts=1_700_000_000_000)
+        assert len(results) == 1
+        assert results[0].metadata["app_name"] == "Google Chrome"
+        assert results[0].doc_key == "knowledge:1"
+        assert results[0].metadata["knowledge_id"] == 1
 
 
 # ── OllamaBackend 接口测试 ────────────────────────────────────────────────────
