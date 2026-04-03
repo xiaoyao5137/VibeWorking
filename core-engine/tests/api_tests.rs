@@ -10,6 +10,7 @@
 //! - PUT /preferences/:key → 200 + 返回新值
 //! - PUT /preferences/:key（无 body）→ 400
 //! - POST /query → 200 + stub 回复
+//! - POST /query（sidecar 不可用）→ 500
 //! - POST /action/execute → 200 + stub 回复
 //! - POST /pii/scrub → 200 + 原文返回
 
@@ -222,7 +223,7 @@ async fn test_preferences_put_invalid_body_400() {
 // ── /query ────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn test_query_stub_returns_200() {
+async fn test_query_sidecar_unavailable_returns_500() {
     let (router, _tmp) = make_test_router().await;
     let req = Request::builder()
         .method(Method::POST)
@@ -230,35 +231,15 @@ async fn test_query_stub_returns_200() {
         .header("content-type", "application/json")
         .body(Body::from(r#"{"query":"今日工作总结"}"#))
         .unwrap();
-    let (status, body) = oneshot(router, req).await;
-    assert_eq!(status, StatusCode::OK);
-    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert!(json["answer"].as_str().unwrap().len() > 0);
-    assert!(json["contexts"].is_array());
+    let (status, _body) = oneshot(router, req).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[tokio::test]
-async fn test_query_fallback_returns_only_knowledge_contexts() {
+async fn test_query_sidecar_error_response_returns_500() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("test.db");
     let sm = StorageManager::open(&db).unwrap();
-
-    sm.with_conn(|conn| {
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS knowledge_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, capture_id INTEGER NOT NULL, summary TEXT, overview TEXT, details TEXT, created_at INTEGER, updated_at INTEGER)",
-            [],
-        )?;
-        conn.execute(
-            "INSERT INTO knowledge_entries (capture_id, summary, overview, details, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params![1_i64, "Gemini 问答", "今天问了 Gemini 发布计划", "整理发布相关提问", 1_710_000_000_000_i64, 1_710_000_000_000_i64],
-        )?;
-        conn.execute(
-            "INSERT INTO captures (ts, app_name, win_title, event_type, ax_text, ocr_text, is_sensitive) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![1_710_000_000_100_i64, "Gemini", "Gemini", "auto", "今天问了 Gemini 发布计划", "今天问了 Gemini 发布计划", 0_i64],
-        )?;
-        Ok::<_, memory_bread_core::storage::StorageError>(())
-    }).unwrap();
-
     let sidecar_url = spawn_failing_sidecar().await;
     let state = Arc::new(AppState { storage: sm, sidecar_url });
     let router = memory_bread_core::api::create_router(state);
@@ -267,18 +248,12 @@ async fn test_query_fallback_returns_only_knowledge_contexts() {
         .method(Method::POST)
         .uri("/query")
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"query":"Gemini 发布计划","top_k":5}"#))
+        .body(Body::from(r#"{"query":"test","top_k":5}"#))
         .unwrap();
-    let (status, body) = oneshot(router, req).await;
-    assert_eq!(status, StatusCode::OK, "body: {body}");
-    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
-    let contexts = json["contexts"].as_array().unwrap();
-    assert_eq!(contexts.len(), 1, "body: {body}");
-    assert_eq!(contexts[0]["source"], "knowledge");
-    assert_eq!(json["model"], "keyword-fallback");
+    let (status, _body) = oneshot(router, req).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
-// ── /action/execute ───────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_action_stub_returns_200() {

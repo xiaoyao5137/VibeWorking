@@ -76,8 +76,9 @@ def get_rag_pipeline():
             ),
             fts5_retriever=Fts5Retriever(db_path=db_path),
             knowledge_retriever=KnowledgeFts5Retriever(db_path=db_path),
-            llm=OllamaBackend(model="qwen2.5:3b"),
+            llm=OllamaBackend(model="qwen2.5:3b", timeout=300),
             top_k=5,
+            db_path=db_path,
         )
         logger.info("RAG pipeline 初始化完成")
     return _rag_pipeline

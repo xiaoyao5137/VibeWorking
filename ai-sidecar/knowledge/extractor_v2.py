@@ -205,13 +205,14 @@ def _build_fallback_knowledge(captures: List[Dict[str, Any]], reason: str) -> Op
 class KnowledgeExtractorV2:
     """知识提炼器 V2 - 强制使用 LLM"""
 
-    def __init__(self, model: str = "qwen2.5:3b", embedding_model=None):
+    def __init__(self, model: str = "qwen2.5:3b", embedding_model=None, user_identity: str = ""):
         """
         初始化知识提炼器
 
         Args:
             model: Ollama 模型名称
             embedding_model: 向量模型（用于去重）
+            user_identity: 用户身份关键词，多个用逗号分隔（如 "张三,zhangsan"）
         """
         try:
             from ollama import Client
@@ -231,6 +232,25 @@ class KnowledgeExtractorV2:
         self.embedding_model = embedding_model
         if embedding_model:
             logger.info("✅ 向量模型已加载，将启用知识去重")
+
+        self.user_identity = user_identity.strip()
+        if self.user_identity:
+            logger.info(f"✅ 用户身份已配置: {self.user_identity}")
+
+    def _build_merge_system_prompt(self) -> str:
+        """构建带用户身份的 MERGE_SYSTEM_PROMPT"""
+        identity_clause = ""
+        if self.user_identity:
+            names = [n.strip() for n in self.user_identity.split(",") if n.strip()]
+            names_str = "、".join(f'"{n}"' for n in names)
+            identity_clause = (
+                f"\n\n**用户身份信息**：屏幕的使用者是 {names_str}。"
+                "在提炼时，请注意：\n"
+                "- 如果屏幕内容是该用户自己操作、输入、编写的工作，activity_type 应正确标注为对应类型（coding/reading/chat 等）\n"
+                "- 如果屏幕内容显示的是其他人（非该用户）的工作、他人的对话记录、别人的代码或文档，overview 中应明确说明「用户在查看他人的…」，importance 降低 1-2 分\n"
+                "- 如果无法判断内容主体，按正常流程提炼，不要猜测"
+            )
+        return MERGE_SYSTEM_PROMPT + identity_clause
 
     def _build_prompt(self, capture_data: Dict[str, Any]) -> str:
         """构建提炼 prompt"""
@@ -495,10 +515,11 @@ class KnowledgeExtractorV2:
                 model_name=self.model,
                 caller_id=f"merge:{capture_ids_str}",
             ) as tracker:
+                _sys_prompt = self._build_merge_system_prompt()
                 response = self.client.chat(
                     model=self.model,
                     messages=[
-                        {"role": "system", "content": MERGE_SYSTEM_PROMPT},
+                        {"role": "system", "content": _sys_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
                     format="json",
@@ -507,7 +528,7 @@ class KnowledgeExtractorV2:
                 tracker.set_response(response)
                 if tracker._prompt_tokens == 0:
                     tracker.set_tokens(
-                        prompt=estimate_tokens(MERGE_SYSTEM_PROMPT + user_prompt),
+                        prompt=estimate_tokens(_sys_prompt + user_prompt),
                         completion=estimate_tokens(response['message']['content']),
                     )
 

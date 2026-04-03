@@ -264,6 +264,64 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
+/* Markdown 渲染区样式 */
+.rag-panel__answer-content--markdown {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #2d3748;
+}
+
+.rag-panel__answer-content--markdown h1,
+.rag-panel__answer-content--markdown h2,
+.rag-panel__answer-content--markdown h3,
+.rag-panel__answer-content--markdown h4 {
+  font-weight: 600;
+  margin: 16px 0 8px;
+  color: #1a202c;
+  line-height: 1.4;
+}
+
+.rag-panel__answer-content--markdown h1 { font-size: 18px; }
+.rag-panel__answer-content--markdown h2 { font-size: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+.rag-panel__answer-content--markdown h3 { font-size: 14px; }
+
+.rag-panel__answer-content--markdown p {
+  margin: 0 0 10px;
+}
+
+.rag-panel__answer-content--markdown ul,
+.rag-panel__answer-content--markdown ol {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.rag-panel__answer-content--markdown li {
+  margin: 4px 0;
+}
+
+.rag-panel__answer-content--markdown strong {
+  font-weight: 600;
+  color: #1a202c;
+}
+
+.rag-panel__answer-content--markdown code {
+  background: #edf2f7;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.rag-panel__answer-content--markdown blockquote {
+  border-left: 3px solid #667eea;
+  margin: 8px 0;
+  padding: 4px 12px;
+  color: #4a5568;
+}
+
+.rag-panel__answer-content--markdown *:first-child { margin-top: 0; }
+.rag-panel__answer-content--markdown *:last-child { margin-bottom: 0; }
+
 .rag-panel__answer-text {
   font-size: 16px;
   line-height: 1.8;
@@ -364,7 +422,8 @@ body {
 /* ── 任务模板区（空状态 / 折叠状态共用） ── */
 .rag-panel__templates {
   width: 100%;
-  margin-top: 24px;
+  margin-top: 12px;
+  padding: 0 32px 16px;
   text-align: left;
 }
 

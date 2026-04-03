@@ -10,9 +10,12 @@
 
 set -e  # 遇到错误立即退出
 
-# 添加 Rust 到 PATH（如果存在）
+# 添加 Rust 和 Homebrew Node 到 PATH（nohup 启动时不继承用户 PATH）
 if [ -d "$HOME/.cargo/bin" ]; then
     export PATH="$HOME/.cargo/bin:$PATH"
+fi
+if [ -d "/opt/homebrew/bin" ]; then
+    export PATH="/opt/homebrew/bin:$PATH"
 fi
 
 # 颜色输出

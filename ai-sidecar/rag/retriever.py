@@ -625,6 +625,7 @@ class KnowledgeFts5Retriever:
                 k.activity_type,
                 k.is_self_generated,
                 k.evidence_strength,
+                k.importance,
                 fts.rank as score
             FROM knowledge_fts fts
             JOIN knowledge_entries k ON fts.rowid = k.id
@@ -735,7 +736,8 @@ class KnowledgeFts5Retriever:
                 k.content_origin,
                 k.activity_type,
                 k.is_self_generated,
-                k.evidence_strength
+                k.evidence_strength,
+                k.importance
             FROM knowledge_entries k
             WHERE 1=1
         """
@@ -823,6 +825,7 @@ class KnowledgeFts5Retriever:
                 "activity_type": row["activity_type"],
                 "is_self_generated": bool(row["is_self_generated"]),
                 "evidence_strength": row["evidence_strength"],
+                "importance": row["importance"],
                 "time": time_value,
                 "app_name": row["frag_app_name"],
                 "win_title": row["frag_win_title"],

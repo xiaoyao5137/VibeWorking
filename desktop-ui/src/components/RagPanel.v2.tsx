@@ -10,10 +10,15 @@
  *    - 有回答时：模板区折叠在参考来源下方，可展开/收起
  */
 
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { useRagQuery } from '../hooks/useApi'
 import { BUILTIN_TEMPLATES, CATEGORY_COLORS, groupTemplatesByCategory } from '../data/taskTemplates'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
+
+// 配置 marked：换行处理
+marked.setOptions({ breaks: true })
 
 interface RagPanelProps {
   className?: string
@@ -32,7 +37,6 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
   } = useAppStore()
 
   const [inputValue, setInputValue] = useState(ragQuery)
-  const [templatesExpanded, setTemplatesExpanded] = useState(false)
   const doQuery = useRagQuery()
 
   const handleSubmit = useCallback(
@@ -63,7 +67,11 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
     [setRagQuery, doQuery]
   )
 
-  const hasResult = !!(ragAnswer || ragError)
+  const answerHtml = useMemo(() => {
+    if (!ragAnswer) return ''
+    const raw = marked.parse(ragAnswer) as string
+    return DOMPurify.sanitize(raw)
+  }, [ragAnswer])
 
   return (
     <div
@@ -92,7 +100,7 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
           </svg>
           <h2 className="rag-panel__title">记忆面包</h2>
         </div>
-        <p className="rag-panel__subtitle">看过就会记住,记住就会理解</p>
+        <p className="rag-panel__subtitle">看见就会记住，记住就会理解<br />理解就能生产，生产就有希望</p>
       </div>
 
       {/* 输入区域 */}
@@ -211,7 +219,7 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
             </svg>
             <strong>AI 回答</strong>
           </div>
-          <div className="rag-panel__answer-content">{ragAnswer}</div>
+          <div className="rag-panel__answer-content rag-panel__answer-content--markdown" dangerouslySetInnerHTML={{ __html: answerHtml }} />
         </div>
       )}
 
@@ -255,135 +263,33 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
         </div>
       )}
 
-      {/* ── 任务模板区 ── */}
-      {/* 空状态：大图标 + 全量模板展示 */}
-      {!ragLoading && !hasResult && (
-        <div className="rag-panel__empty" data-testid="rag-panel-empty">
-          <svg
-            width="48"
-            height="48"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="rag-panel__empty-icon"
-          >
-            <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
-            <path d="M9 13a4.5 4.5 0 0 0 3-4" />
-            <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" />
-            <path d="M3.477 10.896a4 4 0 0 1 .585-.396" />
-            <path d="M6 18a4 4 0 0 1-1.967-.516" />
-            <path d="M12 13h4" />
-            <path d="M12 18h6a2 2 0 0 1 2 2v1" />
-            <path d="M12 8h8" />
-            <path d="M16 8V5a2 2 0 0 1 2-2" />
-            <circle cx="16" cy="13" r=".5" />
-            <circle cx="18" cy="3" r=".5" />
-            <circle cx="20" cy="21" r=".5" />
-            <circle cx="20" cy="8" r=".5" />
-          </svg>
-          <p>你好！我是记忆面包</p>
-          <p className="rag-panel__empty-hint">
-            问我任何工作相关的问题，或从下方选择一个任务模板快速开始
-          </p>
-
-          <div className="rag-panel__templates">
-            {Object.entries(GROUPED_TEMPLATES).map(([category, templates]) => (
-              <div key={category} className="rag-panel__template-group">
-                <div
-                  className="rag-panel__template-category"
-                  style={{ borderColor: CATEGORY_COLORS[category] ?? '#999', color: CATEGORY_COLORS[category] ?? '#999' }}
-                >
-                  {category}
-                </div>
-                <div className="rag-panel__template-chips">
-                  {templates.map((tpl) => (
-                    <button
-                      key={tpl.id}
-                      className="rag-panel__template-chip"
-                      style={{ '--chip-color': CATEGORY_COLORS[category] ?? '#4a90e2' } as React.CSSProperties}
-                      onClick={() => handleTemplateClick(tpl.user_instruction)}
-                      disabled={ragLoading}
-                      title={tpl.user_instruction}
-                    >
-                      {tpl.name}
-                    </button>
-                  ))}
-                </div>
+      {/* ── 任务模板区：始终展示 ── */}
+      {!ragLoading && (
+        <div className="rag-panel__templates">
+          {Object.entries(GROUPED_TEMPLATES).map(([category, templates]) => (
+            <div key={category} className="rag-panel__template-group">
+              <div
+                className="rag-panel__template-category"
+                style={{ borderColor: CATEGORY_COLORS[category] ?? '#999', color: CATEGORY_COLORS[category] ?? '#999' }}
+              >
+                {category}
               </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 有结果时：模板区折叠在底部，可展开 */}
-      {!ragLoading && hasResult && (
-        <div className="rag-panel__templates-collapsed">
-          <button
-            className="rag-panel__templates-toggle"
-            onClick={() => setTemplatesExpanded((v) => !v)}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect width="7" height="7" x="3" y="3" rx="1" />
-              <rect width="7" height="7" x="14" y="3" rx="1" />
-              <rect width="7" height="7" x="14" y="14" rx="1" />
-              <rect width="7" height="7" x="3" y="14" rx="1" />
-            </svg>
-            任务模板
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className={`rag-panel__toggle-arrow ${templatesExpanded ? 'rag-panel__toggle-arrow--up' : ''}`}
-            >
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-          </button>
-
-          {templatesExpanded && (
-            <div className="rag-panel__templates rag-panel__templates--inline">
-              {Object.entries(GROUPED_TEMPLATES).map(([category, templates]) => (
-                <div key={category} className="rag-panel__template-group">
-                  <div
-                    className="rag-panel__template-category"
-                    style={{ borderColor: CATEGORY_COLORS[category] ?? '#999', color: CATEGORY_COLORS[category] ?? '#999' }}
+              <div className="rag-panel__template-chips">
+                {templates.map((tpl) => (
+                  <button
+                    key={tpl.id}
+                    className="rag-panel__template-chip"
+                    style={{ '--chip-color': CATEGORY_COLORS[category] ?? '#4a90e2' } as React.CSSProperties}
+                    onClick={() => handleTemplateClick(tpl.user_instruction)}
+                    disabled={ragLoading}
+                    title={tpl.user_instruction}
                   >
-                    {category}
-                  </div>
-                  <div className="rag-panel__template-chips">
-                    {templates.map((tpl) => (
-                      <button
-                        key={tpl.id}
-                        className="rag-panel__template-chip"
-                        style={{ '--chip-color': CATEGORY_COLORS[category] ?? '#4a90e2' } as React.CSSProperties}
-                        onClick={() => handleTemplateClick(tpl.user_instruction)}
-                        disabled={ragLoading}
-                        title={tpl.user_instruction}
-                      >
-                        {tpl.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
+                    {tpl.name}
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
+          ))}
         </div>
       )}
     </div>

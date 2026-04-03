@@ -8,6 +8,7 @@ RagPipeline — 完整 RAG 查询流水线
 from __future__ import annotations
 
 import logging
+import sqlite3
 import time
 from dataclasses import dataclass, field
 
@@ -27,24 +28,44 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_SYSTEM_PROMPT = (
     "你是记忆面包，一个本地运行的 AI 工作助手。"
-    "根据以下工作记录上下文，简洁、准确地回答用户的问题。"
+    "根据以下工作记录上下文，简洁、准确地回答用户的问题，不要向用户反问或要求补充信息。"
     "如果上下文中没有相关信息，请直接说明。"
 )
 
 _WEEKLY_REPORT_SYSTEM_PROMPT = (
     "你是记忆面包，一个本地运行的 AI 工作助手。"
-    "根据以下本周的工作记录，帮用户生成一份结构清晰的工作周报。"
-    "要求：\n"
-    "1. 用 Markdown 格式输出，按活动类型分组（如：需求/开发、代码评审、会议沟通、文档阅读、其他）\n"
-    "2. 每个分组列出具体工作内容，语言简洁专业\n"
-    "3. 如果某类工作没有记录，省略该分组\n"
-    "4. 最后加一段「本周小结」，用 2-3 句话概括整体工作重心\n"
-    "5. 只基于提供的记录生成，不要编造内容"
+    "你的任务是：直接根据下方【工作记录上下文】生成一份工作周报，立即输出，不得提问、不得要求用户补充任何信息。\n"
+    "【强制规则】\n"
+    "- 禁止询问用户任何问题\n"
+    "- 禁止输出'请提供'、'请告诉我'、'能否'、'您能'等请求性语句\n"
+    "- 记录不足时，直接根据已有内容生成，并在结尾注明'（记录有限，以上为本周捕获的主要工作内容）'\n"
+    "【写作风格】\n"
+    "- 直接描述做了什么事，不要加'用户'、'本人'等人物主语\n"
+    "- 错误示例：'用户完成了XX功能的开发'→ 正确示例：'完成了XX功能的开发'\n"
+    "- 语言简洁专业，以事情/成果为中心\n"
+    "【内容取舍】每条记录带有重要性评分（importance 1-5）：\n"
+    "- importance >= 4：核心工作成果，必须展示\n"
+    "- importance = 3：有价值的工作内容，正常展示\n"
+    "- importance <= 2：低价值操作（如查看文档、切换标签页、执行无业务意义的脚本等），省略或归并到'其他零散操作'\n"
+    "- 即使 importance 较高，以下类型也应省略：工具安装/脚本报错、内存磁盘告警、应用切换等纯系统操作\n"
+    "【输出格式】Markdown，要求：\n"
+    "1. 按活动类型分组（如：开发/编码、代码评审、会议沟通、文档阅读、其他）\n"
+    "2. 每组列出具体工作内容，语言简洁专业\n"
+    "3. 无记录的分组省略\n"
+    "4. 结尾加'本周小结'（2-3句话）\n"
+    "5. 只用提供的记录，不编造"
 )
 
 _DAILY_REPORT_SYSTEM_PROMPT = (
     "你是记忆面包，一个本地运行的 AI 工作助手。"
-    "根据以下今天的工作记录，帮用户生成一份工作日报。"
+    "根据以下今天的工作记录，帮用户生成一份工作日报。\n"
+    "【写作风格】\n"
+    "- 直接描述做了什么事，不要加'用户'、'本人'等人物主语\n"
+    "- 错误示例：'用户参与了XX会议'→ 正确示例：'参与了XX会议'\n"
+    "【内容取舍】每条记录带有重要性评分（importance 1-5）：\n"
+    "- importance >= 3：正常展示\n"
+    "- importance <= 2：省略或归并为'其他零散操作'\n"
+    "- 工具报错、系统告警、应用切换等纯系统操作一律省略\n"
     "要求：\n"
     "1. 用 Markdown 格式输出，按活动类型分组（如：开发、会议、沟通、阅读、其他）\n"
     "2. 每个分组列出具体工作内容，语言简洁专业\n"
@@ -117,6 +138,7 @@ class RagPipeline:
         knowledge_retriever: KnowledgeFts5Retriever | None = None,
         top_k: int = 5,
         system_prompt: str = _DEFAULT_SYSTEM_PROMPT,
+        db_path: str | None = None,
     ) -> None:
         self._embed = embedding_model
         self._vector = vector_retriever
@@ -125,6 +147,40 @@ class RagPipeline:
         self._llm = llm
         self._top_k = top_k
         self._system = system_prompt
+        self._db_path = db_path
+
+    def _read_user_identity(self) -> str:
+        """从 user_preferences 表读取用户身份关键词"""
+        if not self._db_path:
+            return ""
+        try:
+            conn = sqlite3.connect(self._db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT value FROM user_preferences WHERE key = 'user.identity_keywords' LIMIT 1"
+            )
+            row = cursor.fetchone()
+            conn.close()
+            return (row[0] or "").strip() if row else ""
+        except Exception as exc:
+            logger.warning("读取用户身份偏好失败: %s", exc)
+            return ""
+
+    def _build_identity_clause(self, user_identity: str) -> str:
+        """生成用于注入到 system prompt 的身份说明段落"""
+        if not user_identity:
+            return ""
+        names = [n.strip() for n in user_identity.split(",") if n.strip()]
+        if not names:
+            return ""
+        names_str = "、".join(f'"{n}"' for n in names)
+        return (
+            f"\n\n【用户身份】屏幕的使用者是 {names_str}。"
+            "在分析工作记录时，请注意：\n"
+            "- 如果记录中的工作内容是由该用户自己操作、输入或编写的，应作为用户本人的工作产出纳入报告\n"
+            "- 如果记录显示的是他人（非该用户）的工作内容，应酌情降低重要性或在描述中注明「用户在查看他人的…」\n"
+            "- 无法判断时，按正常流程处理"
+        )
 
     def query(self, user_query: str, top_k: int | None = None) -> RagResult:
         """执行完整 RAG 查询，返回 LLM 答案及引用的上下文片段。"""
@@ -166,6 +222,34 @@ class RagPipeline:
             evidence_strengths=intent.evidence_strengths or None,
             query_mode=intent.query_mode,
         ) if self._knowledge else []
+
+        # 周报/日报时间兜底：若本周/今天无数据，自动扩大到最近7天
+        if intent.task_type == "weekly_report" and not knowledge_results:
+            logger.info("本周无 knowledge 数据，回退到最近 7 天")
+            fallback_start = int(time.time() * 1000) - 7 * 24 * 60 * 60 * 1000
+            knowledge_results = self._knowledge.search(
+                "",
+                top_k=effective_top_k * 2,
+                observed_start_ts=fallback_start,
+                observed_end_ts=intent.observed_end_ts,
+                activity_types=intent.activity_types or None,
+                history_view=intent.history_view,
+                is_self_generated=intent.is_self_generated,
+                evidence_strengths=intent.evidence_strengths or None,
+                query_mode=intent.query_mode,
+            ) if self._knowledge else []
+            # 进一步兜底：若 activity_types 过滤后仍无数据，去掉 activity_types 限制再查
+            if not knowledge_results:
+                logger.info("带 activity_types 仍无数据，去掉过滤重试")
+                knowledge_results = self._knowledge.search(
+                    "",
+                    top_k=effective_top_k * 2,
+                    observed_start_ts=fallback_start,
+                    observed_end_ts=intent.observed_end_ts,
+                    history_view=intent.history_view,
+                    is_self_generated=intent.is_self_generated,
+                    query_mode=intent.query_mode,
+                ) if self._knowledge else []
         vector_results = (
             self._vector.search(
                 query_vector,
@@ -196,18 +280,35 @@ class RagPipeline:
         )
         selected_contexts = self._select_contexts(merged, effective_top_k, query_mode=intent.query_mode)
 
-        context_text = self._build_context(selected_contexts)
-        prompt = f"工作记录上下文：\n{context_text}\n\n用户问题：{user_query}"
+        is_report = intent.task_type in ("weekly_report", "daily_report", "project_summary")
+        context_text = self._build_context(selected_contexts, strip_user_subject=is_report)
 
-        # 根据意图动态选择 system prompt
-        if intent.task_type == "weekly_report":
-            system = _WEEKLY_REPORT_SYSTEM_PROMPT
-        elif intent.task_type == "daily_report":
-            system = _DAILY_REPORT_SYSTEM_PROMPT
-        elif intent.task_type == "project_summary":
-            system = _PROJECT_SUMMARY_SYSTEM_PROMPT
+        # 任务型意图：若无任何上下文，直接返回提示，不走 LLM（避免 LLM 自由发挥）
+        if intent.task_type and not selected_contexts:
+            type_name = {"weekly_report": "本周", "daily_report": "今天", "project_summary": "项目"}.get(intent.task_type, "")
+            return RagResult(
+                answer=f"暂未找到{type_name}的工作记录，无法生成报告。请确认记忆面包已正常捕获屏幕内容。",
+                contexts=[],
+                model="no-context",
+            )
+
+        # 任务型意图：prompt 中明确标注「以下是真实工作记录」，强制 LLM 基于数据输出
+        if intent.task_type:
+            prompt = f"以下是从本地数据库检索到的【真实工作记录】，共 {len(selected_contexts)} 条，请严格基于这些记录生成报告：\n\n{context_text}"
         else:
-            system = self._system
+            prompt = f"工作记录上下文：\n{context_text}\n\n用户问题：{user_query}"
+
+        # 根据意图动态选择 system prompt，并注入用户身份
+        user_identity = self._read_user_identity()
+        identity_clause = self._build_identity_clause(user_identity)
+        if intent.task_type == "weekly_report":
+            system = _WEEKLY_REPORT_SYSTEM_PROMPT + identity_clause
+        elif intent.task_type == "daily_report":
+            system = _DAILY_REPORT_SYSTEM_PROMPT + identity_clause
+        elif intent.task_type == "project_summary":
+            system = _PROJECT_SUMMARY_SYSTEM_PROMPT + identity_clause
+        else:
+            system = self._system + identity_clause
 
         llm_resp = self._llm.complete(prompt, system=system)
 
@@ -219,7 +320,7 @@ class RagPipeline:
         )
 
     @staticmethod
-    def _build_context(chunks: list[RetrievedChunk]) -> str:
+    def _build_context(chunks: list[RetrievedChunk], strip_user_subject: bool = False) -> str:
         if not chunks:
             return "（无相关工作记录）"
         parts = []
@@ -231,6 +332,7 @@ class RagPipeline:
             history_view = chunk.metadata.get("history_view")
             activity_type = chunk.metadata.get("activity_type")
             content_origin = chunk.metadata.get("content_origin")
+            importance = chunk.metadata.get("importance")
             prefix: list[str] = [f"[{i}][{source}]"]
             if observed_at:
                 prefix.append(f"看到时间={_format_ts(observed_at)}")
@@ -245,7 +347,11 @@ class RagPipeline:
                 prefix.append(f"活动={activity_type}")
             if content_origin:
                 prefix.append(f"来源={content_origin}")
+            if importance is not None:
+                prefix.append(f"重要性={importance}")
             text = chunk.text[:_MAX_CHUNK_LEN]
+            if strip_user_subject:
+                text = _strip_user_subject(text)
             parts.append(f"{' '.join(prefix)} {text}")
         return "\n\n".join(parts)
 
@@ -253,11 +359,16 @@ class RagPipeline:
     def _select_contexts(chunks: list[RetrievedChunk], top_k: int, query_mode: str = "lookup") -> list[RetrievedChunk]:
         selected: list[RetrievedChunk] = []
         selected_keys: set[str] = set()
+
+        is_report_mode = query_mode == "summary"
+
         candidate_chunks = sorted(
             chunks,
             key=lambda chunk: (
-                0 if query_mode == "summary" and chunk.metadata.get("activity_type") not in {"other", None} else 1,
-                0 if query_mode == "summary" and chunk.metadata.get("evidence_strength") in {"high", "medium"} else 1,
+                # 报告模式：importance 低的排后面（importance 为 None 按 3 处理）
+                -(chunk.metadata.get("importance") or 3) if is_report_mode else 0,
+                0 if is_report_mode and chunk.metadata.get("activity_type") not in {"other", None} else 1,
+                0 if is_report_mode and chunk.metadata.get("evidence_strength") in {"high", "medium"} else 1,
                 -float(chunk.score),
             ),
         )
@@ -269,6 +380,9 @@ class RagPipeline:
             if source_type != "knowledge":
                 continue
             if _is_noise_chunk(chunk):
+                continue
+            # 报告模式下直接丢弃 importance=1 的极低价值记录
+            if is_report_mode and (chunk.metadata.get("importance") or 3) <= 1:
                 continue
             doc_key = chunk.doc_key or chunk.metadata.get("doc_key")
             if not doc_key or doc_key in selected_keys:
@@ -516,6 +630,31 @@ def _is_noise_chunk(chunk: RetrievedChunk) -> bool:
         return True
     return _looks_like_noise_chunk(chunk)
 
+
+
+def _strip_user_subject(text: str) -> str:
+    """从知识条目文本中去掉多余的'用户'主语，适用于报告生成。"""
+    import re
+    lines = text.split("\n")
+    result = []
+    for line in lines:
+        if "用户" not in line:
+            result.append(line)
+            continue
+        # "概述：用户在/将/..." → "概述："
+        line = re.sub(
+            r"(概述：|详情：)(用户(?:在|对|与|通过|使用|于|并|已)?)",
+            r"\1",
+            line,
+        )
+        # 句首或行首 "用户在/用户" → 去掉"用户"，保留后面的介词（将/把等）
+        line = re.sub(
+            r"^(用户(?:在|对|与|通过|使用|于|并|已)?)",
+            "",
+            line.lstrip(),
+        )
+        result.append(line)
+    return "\n".join(result)
 
 
 def _day_start_ms(offset_days: int) -> int:

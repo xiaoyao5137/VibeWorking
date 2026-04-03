@@ -39,7 +39,7 @@ def get_rag_pipeline():
         )
         fts5_retriever = Fts5Retriever(db_path=db_path)
         knowledge_retriever = KnowledgeFts5Retriever(db_path=db_path)
-        llm = OllamaBackend(model="qwen2.5:3b")  # 使用 3b 模型
+        llm = OllamaBackend(model="qwen2.5:3b", timeout=300)  # 使用 3b 模型
 
         _rag_pipeline = RagPipeline(
             embedding_model=embedding_model,
@@ -48,6 +48,7 @@ def get_rag_pipeline():
             knowledge_retriever=knowledge_retriever,
             llm=llm,
             top_k=5,
+            db_path=db_path,
         )
         logger.info("RAG pipeline 初始化完成")
     return _rag_pipeline

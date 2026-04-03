@@ -67,16 +67,35 @@ class BackgroundProcessor:
             logger.info("EmbedWorker 已初始化（后台任务）")
         return self._embed_worker
 
+    def _read_user_identity(self) -> str:
+        """从 user_preferences 表读取用户身份关键词"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT value FROM user_preferences WHERE key = 'user.identity_keywords' LIMIT 1"
+            )
+            row = cursor.fetchone()
+            conn.close()
+            return (row[0] or "").strip() if row else ""
+        except Exception as e:
+            logger.warning("读取用户身份偏好失败: %s", e)
+            return ""
+
     def _get_knowledge_extractor(self):
-        """懒加载 KnowledgeExtractor V2"""
-        if self._knowledge_extractor is None:
-            logger.info("开始初始化 KnowledgeExtractor V2（后台任务）")
+        """懒加载 KnowledgeExtractor V2，在身份发生变化时自动重建"""
+        current_identity = self._read_user_identity()
+        if self._knowledge_extractor is None or getattr(self, '_cached_identity', None) != current_identity:
+            logger.info("开始初始化 KnowledgeExtractor V2（后台任务，identity=%r）", current_identity)
             from knowledge.extractor_v2 import KnowledgeExtractorV2
             from embedding.model import EmbeddingModel
 
-            # 加载向量模型用于去重
             embedding_model = EmbeddingModel.create_default()
-            self._knowledge_extractor = KnowledgeExtractorV2(embedding_model=embedding_model)
+            self._knowledge_extractor = KnowledgeExtractorV2(
+                embedding_model=embedding_model,
+                user_identity=current_identity,
+            )
+            self._cached_identity = current_identity
             logger.info("KnowledgeExtractor V2 已初始化（后台任务，支持去重）")
         return self._knowledge_extractor
 
@@ -84,13 +103,24 @@ class BackgroundProcessor:
         """获取未处理的采集记录（按时间升序，用于分组）"""
         cursor = conn.cursor()
         # knowledge_id IS NULL 表示尚未被合并进任何工作片段
-        cursor.execute("""
+        # 自生成 app/窗口在 SQL 层直接过滤，避免 LIMIT 被自生成记录占满导致真实内容取不到
+        app_kws = tuple(k.lower() for k in _SELF_GENERATED_APP_KEYWORDS)
+        win_kws = tuple(k.lower() for k in _SELF_GENERATED_WINDOW_KEYWORDS)
+        app_not_like = " AND ".join(
+            f"LOWER(c.app_name) NOT LIKE '%{k}%'" for k in app_kws
+        )
+        win_not_like = " AND ".join(
+            f"LOWER(c.win_title) NOT LIKE '%{k}%'" for k in win_kws
+        )
+        cursor.execute(f"""
             SELECT c.id, c.ts, c.app_name, c.win_title, c.ocr_text, c.ax_text
             FROM captures c
             WHERE ((c.ocr_text IS NOT NULL AND c.ocr_text != '')
                OR (c.ax_text IS NOT NULL AND c.ax_text != ''))
               AND c.knowledge_id IS NULL
               AND c.is_sensitive = 0
+              AND ({app_not_like})
+              AND ({win_not_like})
             ORDER BY c.ts ASC
             LIMIT ?
         """, (limit,))
@@ -101,7 +131,6 @@ class BackgroundProcessor:
                 'window_title': r[3], 'ocr_text': r[4], 'ax_text': r[5],
             }
             for r in rows
-            if not _is_self_generated_capture(r[2], r[3])
         ]
 
     def _get_fragment_grouper(self):

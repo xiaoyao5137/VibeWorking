@@ -20,6 +20,7 @@ interface SettingsProps {
 
 const Settings: React.FC<SettingsProps> = ({ className = '' }) => {
   const CAPTURE_INTERVAL_KEY = 'privacy.capture_interval_sec'
+  const USER_IDENTITY_KEY = 'user.identity_keywords'
   const DEFAULT_API_BASE = 'http://localhost:7070'
 
   const {
@@ -34,6 +35,8 @@ const Settings: React.FC<SettingsProps> = ({ className = '' }) => {
   const [error, setError] = useState<string | null>(null)
   const [apiUrlInput, setApiUrlInput] = useState(apiBaseUrl)
   const [saveMsg, setSaveMsg] = useState<string | null>(null)
+  const [identityInput, setIdentityInput] = useState('')
+  const [identitySaved, setIdentitySaved] = useState(false)
 
   const fetchPrefs = useFetchPreferences()
   const updatePref = useUpdatePreference()
@@ -49,7 +52,11 @@ const Settings: React.FC<SettingsProps> = ({ className = '' }) => {
   useEffect(() => {
     setLoading(true)
     fetchPrefs()
-      .then(setPreferences)
+      .then((prefs) => {
+        setPreferences(prefs)
+        const identityPref = prefs.find((p) => p.key === USER_IDENTITY_KEY)
+        if (identityPref) setIdentityInput(identityPref.value)
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false))
   }, [fetchPrefs])
@@ -101,6 +108,18 @@ const Settings: React.FC<SettingsProps> = ({ className = '' }) => {
 
   const handleClose = () => setWindowMode('buddy')
 
+  const handleSaveIdentity = useCallback(async () => {
+    const val = identityInput.trim()
+    if (!val) return
+    try {
+      await updatePref(USER_IDENTITY_KEY, val)
+      setIdentitySaved(true)
+      setTimeout(() => setIdentitySaved(false), 2000)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }, [identityInput, updatePref, USER_IDENTITY_KEY])
+
   return (
     <div className={`settings-v2 ${className}`} data-testid="settings-page">
       {/* 标题栏 */}
@@ -148,6 +167,60 @@ const Settings: React.FC<SettingsProps> = ({ className = '' }) => {
       </div>
 
       <div className="settings-v2__content">
+        {/* 我是谁 */}
+        <section className="settings-v2__card settings-v2__card--identity" data-testid="settings-identity-section">
+          <div className="settings-v2__card-header">
+            <div className="settings-v2__card-icon settings-v2__card-icon--green">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="settings-v2__card-title">我是谁</h2>
+              <p className="settings-v2__card-desc">告诉记忆面包你的身份，让它准确识别哪些内容是你自己的工作产出</p>
+            </div>
+          </div>
+
+          <div className="settings-v2__form-group">
+            <label htmlFor="identity-input" className="settings-v2__label">
+              你的名字 / 昵称 / 网名
+            </label>
+            <p className="settings-v2__pref-help">
+              多个名称用逗号分隔，例如：张三,zhangsan,老张。记忆面包会用这些信息区分屏幕上"你做的事"和"别人做的事"，避免把无关内容写入你的工作记录。
+            </p>
+            <div className="settings-v2__input-group">
+              <input
+                id="identity-input"
+                data-testid="identity-input"
+                type="text"
+                className="settings-v2__input"
+                value={identityInput}
+                onChange={(e) => setIdentityInput(e.target.value)}
+                placeholder="输入你的名字或昵称，多个用逗号分隔"
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSaveIdentity() }}
+              />
+              <button
+                data-testid="identity-save"
+                onClick={handleSaveIdentity}
+                type="button"
+                className="settings-v2__btn settings-v2__btn--primary"
+                disabled={!identityInput.trim()}
+              >
+                保存
+              </button>
+            </div>
+            {identitySaved && (
+              <div className="settings-v2__success-msg">✓ 身份信息已保存</div>
+            )}
+            {!identityInput.trim() && !loading && (
+              <div className="settings-v2__identity-hint">
+                ⚠️ 尚未设置身份信息，建议在使用前先完成设置
+              </div>
+            )}
+          </div>
+        </section>
+
         {/* API 服务配置 */}
         <section className="settings-v2__card" data-testid="settings-api-section">
           <div className="settings-v2__card-header">
