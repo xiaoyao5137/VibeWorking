@@ -13,7 +13,7 @@ use super::{
     handlers::{
         action::execute_action,
         captures::list_captures,
-        debug::{system_stats, vector_status},
+        debug::{clear_extraction_queue, system_stats, vector_status},
         health::health_handler,
         knowledge::{delete_knowledge, list_knowledge, verify_knowledge},
         monitor::{monitor_overview, monitor_system},
@@ -45,6 +45,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/pii/scrub",             post(pii_scrub))
         .route("/api/vector/status",     get(vector_status))
         .route("/api/stats",             get(system_stats))
+        .route("/api/debug/clear-extraction-queue", post(clear_extraction_queue))
         .route("/api/knowledge",         get(list_knowledge))
         .route("/api/knowledge/:id/verify", post(verify_knowledge))
         .route("/api/knowledge/:id",     axum::routing::delete(delete_knowledge))

@@ -165,6 +165,7 @@ pub struct AppCount {
 pub struct KnowledgeFlow {
     pub today_count: i64,
     pub period_count: i64,
+    pub pending_extraction_count: i64,
     pub by_time: Vec<KnowledgeTimePoint>,
     pub recent: Vec<KnowledgeItem>,
 }
@@ -390,6 +391,11 @@ pub async fn monitor_overview(
             rusqlite::params![from_ms, fallback_noise_pattern.as_str()],
             |r| r.get(0),
         ).unwrap_or(0);
+        let pending_extraction_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM captures WHERE knowledge_id IS NULL",
+            [],
+            |r| r.get(0),
+        ).unwrap_or(0);
 
         let mut knowledge_by_time_stmt = conn.prepare(
             "SELECT (CAST(strftime('%s', created_at) AS INTEGER) * 1000 / ?1) * ?1 + ?1/2 as bucket, COUNT(*)
@@ -530,6 +536,7 @@ pub async fn monitor_overview(
             knowledge_flow: KnowledgeFlow {
                 today_count: knowledge_today_count,
                 period_count: knowledge_period_count,
+                pending_extraction_count,
                 by_time: knowledge_by_time,
                 recent: knowledge_recent,
             },

@@ -18,6 +18,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -63,6 +64,68 @@ def _parse_args() -> argparse.Namespace:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 内部向量搜索 HTTP 服务（端口 7072）
+# 在 sidecar 进程内运行，复用 VectorStorage 单例的 Qdrant 客户端，
+# 避免 model_api_server 另开 Qdrant 连接导致文件锁冲突。
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _start_vector_search_server() -> None:
+    """在 daemon 线程中启动内部向量搜索 HTTP 服务（端口 7072）。"""
+    try:
+        from flask import Flask, jsonify, request as flask_request
+
+        _vs_app = Flask("vector_search_internal")
+        logging.getLogger("werkzeug").setLevel(logging.WARNING)
+
+        @_vs_app.route('/vector_search', methods=['POST'])
+        def vector_search():
+            data = flask_request.get_json()
+            if not data or 'query_vector' not in data:
+                return jsonify({'error': 'missing query_vector'}), 400
+            query_vector = data['query_vector']
+            top_k = int(data.get('top_k', 10))
+            score_threshold = float(data.get('score_threshold', 0.3))
+            try:
+                from embedding.vector_storage import get_vector_storage
+                vs = get_vector_storage()
+                client = vs._get_qdrant_client()
+                if client is None:
+                    return jsonify({'error': 'Qdrant client not available'}), 503
+                results = client.query_points(
+                    collection_name=vs._collection_name,
+                    query=query_vector,
+                    limit=top_k,
+                    score_threshold=score_threshold,
+                ).points
+                hits = []
+                for hit in results:
+                    payload = dict(hit.payload or {})
+                    capture_id = int(payload.get('capture_id') or 0)
+                    doc_key = payload.get('doc_key') or f"capture:{capture_id}"
+                    hits.append({
+                        'capture_id': capture_id,
+                        'doc_key': doc_key,
+                        'text': payload.get('text', ''),
+                        'score': float(hit.score),
+                        'source': 'vector',
+                        'metadata': payload,
+                    })
+                return jsonify({'results': hits})
+            except Exception as e:
+                logging.getLogger(__name__).error("vector_search 失败: %s", e)
+                return jsonify({'error': str(e)}), 500
+
+        @_vs_app.route('/health', methods=['GET'])
+        def health():
+            return jsonify({'status': 'ok', 'service': 'vector_search'})
+
+        logging.getLogger(__name__).info("内部向量搜索服务已启动 (port 7072)")
+        _vs_app.run(host='127.0.0.1', port=7072, debug=False, threaded=True, use_reloader=False)
+    except Exception as e:
+        logging.getLogger(__name__).warning("内部向量搜索服务启动失败（不影响主服务）: %s", e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 主入口
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -70,6 +133,9 @@ async def _main() -> None:
     args = _parse_args()
     logging.getLogger().setLevel(args.log_level)
     limited_mode = os.environ.get("SIDECAR_LIMITED_MODE") == "1"
+
+    # 启动内部向量搜索 HTTP 服务（daemon 线程）
+    threading.Thread(target=_start_vector_search_server, daemon=True, name="vector-search-server").start()
 
     if args.dry_run:
         # 干运行：只处理 ping，其余任务返回 NOT_IMPLEMENTED
@@ -127,7 +193,7 @@ async def _main() -> None:
                 from background_processor import BackgroundProcessor
                 from pathlib import Path
                 db_path = str(Path.home() / ".memory-bread" / "memory-bread.db")
-                bg_processor = BackgroundProcessor(db_path=db_path, interval=10, batch_size=20)
+                bg_processor = BackgroundProcessor(db_path=db_path, interval=30, batch_size=5)
                 asyncio.create_task(bg_processor.run())
                 logger.info("后台处理器已启动（向量化 + 知识提炼）")
 

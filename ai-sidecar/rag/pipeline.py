@@ -37,55 +37,60 @@ _WEEKLY_REPORT_SYSTEM_PROMPT = (
     "你的任务是：直接根据下方【工作记录上下文】生成一份工作周报，立即输出，不得提问、不得要求用户补充任何信息。\n"
     "【强制规则】\n"
     "- 禁止询问用户任何问题\n"
-    "- 禁止输出'请提供'、'请告诉我'、'能否'、'您能'等请求性语句\n"
-    "- 记录不足时，直接根据已有内容生成，并在结尾注明'（记录有限，以上为本周捕获的主要工作内容）'\n"
+    "- 禁止输出'请提供'、'请告诉我'等请求性语句\n"
+    "- 没有足够数据的章节直接跳过，不输出该章节标题，不输出'无相关内容'等占位文字\n"
     "【写作风格】\n"
-    "- 直接描述做了什么事，不要加'用户'、'本人'等人物主语\n"
-    "- 错误示例：'用户完成了XX功能的开发'→ 正确示例：'完成了XX功能的开发'\n"
-    "- 语言简洁专业，以事情/成果为中心\n"
-    "【内容取舍】每条记录带有重要性评分（importance 1-5）：\n"
-    "- importance >= 4：核心工作成果，必须展示\n"
-    "- importance = 3：有价值的工作内容，正常展示\n"
-    "- importance <= 2：低价值操作（如查看文档、切换标签页、执行无业务意义的脚本等），省略或归并到'其他零散操作'\n"
-    "- 即使 importance 较高，以下类型也应省略：工具安装/脚本报错、内存磁盘告警、应用切换等纯系统操作\n"
-    "【输出格式】Markdown，要求：\n"
-    "1. 按活动类型分组（如：开发/编码、代码评审、会议沟通、文档阅读、其他）\n"
-    "2. 每组列出具体工作内容，语言简洁专业\n"
-    "3. 无记录的分组省略\n"
-    "4. 结尾加'本周小结'（2-3句话）\n"
-    "5. 只用提供的记录，不编造"
+    "- 省略所有主语（人名/他/她），直接以动词开头描述做了什么\n"
+    "- 语言简洁专业，每条内容不少于2句话，说明做了什么、为何重要、达到什么效果\n"
+    "【标题规则】每条工作项使用「- **短标题**：详细描述」格式，其中：\n"
+    "- 短标题必须是5个字以内的动宾短语，概括该条工作的核心动作和对象，例如：「Logo设计」「指标评审」「监控排查」\n"
+    "- 绝不能把描述性长句作为标题，绝不能写占位文字\n"
+    "【内容取舍】\n"
+    "- 只使用工作记录中 activity_type 标注为 coding、meeting、chat 的内容\n"
+    "- reading 类（查看/阅读文档）一律不写入周报\n"
+    "- 工具报错、系统告警、应用切换等纯系统操作一律省略\n"
+    "【输出规范】禁止在输出中出现任何元数据标记（如 importance=、活动=、来源= 等），输出直接可用的正式周报\n"
 )
 
 _DAILY_REPORT_SYSTEM_PROMPT = (
     "你是记忆面包，一个本地运行的 AI 工作助手。"
-    "根据以下今天的工作记录，帮用户生成一份工作日报。\n"
+    "根据以下今天的工作记录，帮用户生成一份详尽完整的工作日报。\n"
     "【写作风格】\n"
-    "- 直接描述做了什么事，不要加'用户'、'本人'等人物主语\n"
-    "- 错误示例：'用户参与了XX会议'→ 正确示例：'参与了XX会议'\n"
+    "- 以第一人称工作视角描述，省略所有主语（人名/用户/他/她），直接描述做了什么\n"
+    "- 错误示例：'鲜嘉麒参与了XX会议'、'他查看了XX文档'→ 正确示例：'参与了XX会议'、'查看了XX文档'\n"
+    "【篇幅要求】\n"
+    "- 每条工作内容需展开描述，说明做了什么、为什么做、达到了什么效果，不少于2句话\n"
+    "- 有记录的章节至少输出3条\n"
+    "- 今日小结不少于3句话，覆盖工作量、进展、遇到的问题或明日计划\n"
     "【内容取舍】每条记录带有重要性评分（importance 1-5）：\n"
-    "- importance >= 3：正常展示\n"
+    "- importance >= 3：正常展示并展开描述\n"
     "- importance <= 2：省略或归并为'其他零散操作'\n"
     "- 工具报错、系统告警、应用切换等纯系统操作一律省略\n"
+    "【输出规范】输出内容中绝对禁止出现任何元数据标记（如 (重要性:3)、importance=4 等），输出直接可用的正式日报内容。\n"
     "要求：\n"
-    "1. 用 Markdown 格式输出，按活动类型分组（如：开发、会议、沟通、阅读、其他）\n"
-    "2. 每个分组列出具体工作内容，语言简洁专业\n"
-    "3. 如果某类工作没有记录，省略该分组\n"
-    "4. 只基于提供的记录生成，不要编造内容"
+    "1. 用 Markdown 格式输出，按活动类型分组（如：开发、会议、沟通、阅读、其他），禁止使用表格\n"
+    "2. 每个分组列出具体工作内容（用 - 列表），每条展开描述\n"
+    "3. 末尾加【今日小结】，不少于3句话\n"
+    "4. 如果某类工作没有记录，省略该分组\n"
+    "5. 只基于提供的记录生成，不要编造内容"
 )
 
 _PROJECT_SUMMARY_SYSTEM_PROMPT = (
     "你是记忆面包，一个本地运行的 AI 工作助手。"
-    "根据以下项目相关的工作记录，帮用户生成一份结构清晰的项目总结报告。"
+    "根据以下项目相关的工作记录，帮用户生成一份结构清晰、内容详尽的项目总结报告。"
+    "【篇幅要求】\n"
+    "- 每个章节至少写3条，每条展开描述不少于2句话\n"
+    "- 总篇幅应充分反映项目的实际工作投入，不因'简洁'省略有价值内容\n"
     "要求：\n"
     "1. 用 Markdown 格式输出，包含以下章节：项目背景与目标、主要完成内容、关键决策与方案、"
     "遇到的挑战及解决方案、成果与数据、经验教训与改进建议\n"
-    "2. 语言简洁专业，聚焦有价值的信息\n"
-    "3. 如果某章节没有足够记录，可简要说明或省略\n"
-    "4. 最后加「下一步计划」章节（如有迹象可循）\n"
+    "2. 每个章节均需详细展开，用具体的技术细节和数据支撑\n"
+    "3. 如果某章节没有足够记录，可简要说明\n"
+    "4. 最后加「下一步计划」章节（如有迹象可循），至少3条\n"
     "5. 只基于提供的记录生成，不要编造内容"
 )
 
-_MAX_CHUNK_LEN = 500   # 单个上下文片段最大字符数
+_MAX_CHUNK_LEN = 800   # 单个上下文片段最大字符数
 
 
 @dataclass
@@ -187,12 +192,16 @@ class RagPipeline:
         effective_top_k = top_k or self._top_k
         intent = self._parse_query_intent(user_query)
 
-        # 任务型意图：15 条高质量记录即可，过多会超出 3B 模型上下文导致输出退化
-        if intent.task_type in ("weekly_report", "daily_report", "project_summary"):
-            effective_top_k = max(effective_top_k, 15)
+        # 报告类任务优先保证稳定返回，限制上下文规模，避免 prompt 过大导致本地模型超时
+        if intent.task_type == "weekly_report":
+            effective_top_k = max(effective_top_k, 18)
+        elif intent.task_type == "daily_report":
+            effective_top_k = max(effective_top_k, 12)
+        elif intent.task_type == "project_summary":
+            effective_top_k = max(effective_top_k, 24)
         # 普通 summary 模式（如"总结我本周的工作"）：适度扩大
         elif intent.query_mode == "summary":
-            effective_top_k = max(effective_top_k, 15)
+            effective_top_k = max(effective_top_k, 20)
 
         query_vector: list[float] = []
         try:
@@ -205,14 +214,17 @@ class RagPipeline:
         # 任务型意图：不按关键词过滤，纯按时间段和活动类型宽松召回
         knowledge_entity_terms = None if intent.task_type else (intent.entity_terms or None)
 
+        _is_report_task = intent.task_type in ("weekly_report", "daily_report")
         knowledge_results = self._knowledge.search(
             user_query if not intent.task_type else "",
             top_k=effective_top_k * 2,
-            start_ts=intent.start_ts,
-            end_ts=intent.end_ts,
+            # 周报/日报：start_ts/end_ts 过滤 k.start_time/k.end_time（事件时间），与 created_at 时间段无关，置 None
+            start_ts=None if _is_report_task else intent.start_ts,
+            end_ts=None if _is_report_task else intent.end_ts,
             entity_terms=knowledge_entity_terms,
-            observed_start_ts=intent.observed_start_ts,
-            observed_end_ts=intent.observed_end_ts,
+            # 周报/日报：用 created_at 过滤（知识生成时间），不用 observed_at（原始截图时间，可能是历史数据）
+            observed_start_ts=None if _is_report_task else intent.observed_start_ts,
+            observed_end_ts=None if _is_report_task else intent.observed_end_ts,
             event_start_ts=intent.event_start_ts,
             event_end_ts=intent.event_end_ts,
             activity_types=intent.activity_types or None,
@@ -221,6 +233,8 @@ class RagPipeline:
             is_self_generated=intent.is_self_generated,
             evidence_strengths=intent.evidence_strengths or None,
             query_mode=intent.query_mode,
+            created_start_ts=intent.start_ts if _is_report_task else None,
+            created_end_ts=intent.end_ts if _is_report_task else None,
         ) if self._knowledge else []
 
         # 周报/日报时间兜底：若本周/今天无数据，自动扩大到最近14天
@@ -237,6 +251,7 @@ class RagPipeline:
                 is_self_generated=intent.is_self_generated,
                 evidence_strengths=intent.evidence_strengths or None,
                 query_mode=intent.query_mode,
+                created_start_ts=fallback_start,
             ) if self._knowledge else []
             # 进一步兜底：若 activity_types 过滤后仍无数据，去掉 activity_types 限制再查
             if not knowledge_results:
@@ -249,6 +264,7 @@ class RagPipeline:
                     history_view=intent.history_view,
                     is_self_generated=intent.is_self_generated,
                     query_mode=intent.query_mode,
+                    created_start_ts=fallback_start,
                 ) if self._knowledge else []
         vector_results = (
             self._vector.search(
@@ -281,7 +297,19 @@ class RagPipeline:
         selected_contexts = self._select_contexts(merged, effective_top_k, query_mode=intent.query_mode)
 
         is_report = intent.task_type in ("weekly_report", "daily_report", "project_summary")
-        context_text = self._build_context(selected_contexts, strip_user_subject=is_report)
+        # 报告模式：提前读取身份，用于上下文主语去除
+        user_identity = self._read_user_identity()
+        user_names = [n.strip() for n in user_identity.split(",") if n.strip()] if user_identity else []
+        context_text = self._build_context(selected_contexts, strip_user_subject=is_report, user_names=user_names if is_report else None)
+
+        # 报告模式：对少量高价值知识补充 details，增强推理质量，同时控制 prompt 体积
+        if is_report and selected_contexts and self._db_path:
+            enriched_details = self._fetch_top_n_details(selected_contexts, top_n=4)
+            if enriched_details:
+                # 对详情文本同样做人名/代词去除
+                if user_names:
+                    enriched_details = _strip_user_subject(enriched_details, user_names=user_names)
+                context_text += "\n\n【核心知识详情（请重点参考）】\n" + enriched_details
 
         # 任务型意图：若无任何上下文，直接返回提示，不走 LLM（避免 LLM 自由发挥）
         if intent.task_type and not selected_contexts:
@@ -293,13 +321,53 @@ class RagPipeline:
             )
 
         # 任务型意图：prompt 中明确标注「以下是真实工作记录」，强制 LLM 基于数据输出
-        if intent.task_type:
-            prompt = f"以下是从本地数据库检索到的【真实工作记录】，共 {len(selected_contexts)} 条，请严格基于这些记录生成报告：\n\n{context_text}"
+        if intent.task_type == "weekly_report":
+            prompt = (
+                "【输出规则】\n"
+                "1. 严格按以下 Markdown 结构输出；有数据的章节必须输出章节标题，没有数据的章节直接跳过（含标题），不写'无相关内容'等占位文字。\n"
+                "2. 固定章节顺序：## 本周核心产出 → ## 项目进展 → ## 下周计划 → ## 风险/阻塞。\n"
+                "3. 【本周核心产出】下每条使用「- **短标题**：详细描述」格式；短标题是5个字以内的动宾短语，禁止输出“短标题”“详细描述”等占位词。\n"
+                "4. 【本周核心产出】每条描述至少2句，只写结果、价值、影响；不要输出“（结果）”“（价值）”这类括号标签。\n"
+                "5. 【项目进展】下每条使用「- **项目名**：已完成 / 进行中 / 待启动 — 进展说明」格式，禁止输出“项目名”占位词，禁止只输出状态集合或散列短句。\n"
+                "6. 【下周计划】下每条使用「- 具体可交付目标」格式，必须可验收，不写“继续推进”“持续跟进”“调研”等空泛表述，也不要输出“具体可交付目标”占位词。\n"
+                "7. 【风险/阻塞】下每条使用「- 风险点：影响范围 / 受阻原因」格式；没有真实风险则整节跳过，不要输出“风险点”占位词。\n"
+                "8. 只使用工作记录中 activity_type=coding、meeting、chat 的内容；reading 类内容不得写入。\n"
+                "9. 禁止输出表格、元数据标记、时间戳、应用名、窗口名、来源字段。\n"
+                "10. 输出完周报正文后立即结束，禁止附带原始工作记录、禁止重复粘贴上下文。\n\n"
+                f"以下是本周真实工作记录（共 {len(selected_contexts)} 条）：\n\n{context_text}\n\n"
+                "---\n"
+                f"用户指令：{user_query}\n"
+            )
+        elif intent.task_type == "daily_report":
+            prompt = (
+                "【输出规则】\n"
+                "1. 严格按照「用户指令」中要求的章节结构输出，没有数据支撑的章节直接跳过（含标题），不写'无相关内容'。\n"
+                "2. 每条工作项格式：「- **短标题**：详细描述」，短标题是5字以内的动宾短语，不能用长句作标题。\n"
+                "3. 描述直接以动词开头，省略所有人名，说明做了什么、为何重要、效果如何。\n"
+                "4. 禁止输出表格，禁止输出元数据标记。\n\n"
+                f"以下是今日真实工作记录（共 {len(selected_contexts)} 条）：\n\n{context_text}\n\n"
+                "---\n"
+                f"用户指令：{user_query}\n"
+            )
+        elif intent.task_type == "project_summary":
+            prompt = (
+                f"以下是从本地数据库检索到的【项目工作记录】，共 {len(selected_contexts)} 条，"
+                f"请严格基于这些记录生成项目总结报告：\n\n{context_text}\n\n"
+                "---\n"
+                "请严格按以下 Markdown 结构输出：\n\n"
+                "## 项目背景与目标\n"
+                "## 主要完成内容\n- 每条至少2句详细描述\n"
+                "## 关键决策与方案\n"
+                "## 遇到的挑战及解决方案\n"
+                "## 成果与数据\n"
+                "## 经验教训与改进建议\n"
+                "## 下一步计划\n- 至少3条\n"
+            )
         else:
             prompt = f"工作记录上下文：\n{context_text}\n\n用户问题：{user_query}"
 
         # 根据意图动态选择 system prompt，并注入用户身份
-        user_identity = self._read_user_identity()
+        # user_identity 已在前面读取（用于主语去除），复用，避免重复查询 DB
         identity_clause = self._build_identity_clause(user_identity)
         if intent.task_type == "weekly_report":
             system = _WEEKLY_REPORT_SYSTEM_PROMPT + identity_clause
@@ -310,17 +378,96 @@ class RagPipeline:
         else:
             system = self._system + identity_clause
 
-        llm_resp = self._llm.complete(prompt, system=system)
+        # 报告模式：明确要求 LLM 输出足够长的内容
+        llm_kwargs = {}
+        if is_report:
+            # 报告类任务优先保证稳定返回，限制输出长度
+            if intent.task_type == "weekly_report":
+                llm_kwargs["num_predict"] = 768
+            elif intent.task_type == "daily_report":
+                llm_kwargs["num_predict"] = 640
+            else:
+                llm_kwargs["num_predict"] = 896
+
+        primary_llm = self._llm
+        if is_report and getattr(self._llm, 'model_name', '') != 'qwen2.5:3b':
+            from rag.llm.ollama import OllamaBackend
+            primary_llm = OllamaBackend(model='qwen2.5:3b', timeout=120, num_predict=llm_kwargs.get("num_predict", 768))
+
+        try:
+            llm_resp = primary_llm.complete(prompt, system=system, **llm_kwargs)
+            answer = llm_resp.text
+        except Exception as e:
+            err_str = str(e).lower()
+            if "timed out" in err_str or "timeout" in err_str or "urlopen error" in err_str:
+                # Ollama 忙（后台知识提炼等任务占用），返回提示让用户稍后重试
+                fallback_context = self._build_context(
+                    selected_contexts,
+                    strip_user_subject=is_report,
+                    user_names=user_names if is_report else None,
+                )
+                fallback_tips = (
+                    "⏳ AI 正在处理后台任务，Ollama 暂时繁忙。请稍候 1-2 分钟再试。\n\n"
+                    "以下是检索到的相关内容供参考：\n\n"
+                )
+                return RagResult(
+                    answer=fallback_tips + fallback_context,
+                    contexts=selected_contexts,
+                    model="unavailable",
+                    tokens=0,
+                )
+            else:
+                raise
+
+        # 报告模式：后处理兜底去除主语（应对 LLM 未遵从指令的情况）
+        if is_report:
+            answer = _postprocess_strip_subjects(answer, user_names)
+        if intent.task_type == "weekly_report":
+            answer = _normalize_weekly_report(answer)
 
         return RagResult(
-            answer=llm_resp.text,
+            answer=answer,
             contexts=selected_contexts,
             model=llm_resp.model,
             tokens=llm_resp.tokens,
         )
 
+    def _fetch_top_n_details(self, chunks: list[RetrievedChunk], top_n: int = 3) -> str:
+        """对重要性最高的 top_n 条知识，从 DB 补充 details 字段，用于增强推理。
+        报告模式下跳过 reading 类条目，避免文档查看类内容混入详情。
+        """
+        if not self._db_path:
+            return ""
+        # 过滤掉 reading 类，再按 importance 降序取 top_n
+        filtered = [c for c in chunks if c.metadata.get("activity_type") != "reading"]
+        sorted_chunks = sorted(
+            filtered,
+            key=lambda c: -(c.metadata.get("importance") or 3),
+        )[:top_n]
+        parts = []
+        try:
+            conn = sqlite3.connect(self._db_path)
+            for chunk in sorted_chunks:
+                knowledge_id = chunk.metadata.get("knowledge_id")
+                if not knowledge_id:
+                    continue
+                row = conn.execute(
+                    "SELECT overview, details FROM knowledge_entries WHERE id = ?",
+                    (knowledge_id,),
+                ).fetchone()
+                if not row:
+                    continue
+                overview, details = row
+                if details and details.strip():
+                    header = overview or chunk.text[:60]
+                    parts.append(f"- 【{header}】\n  详情：{details.strip()[:1000]}")
+            conn.close()
+        except Exception as exc:
+            logger.warning("补充 knowledge details 失败: %s", exc)
+        return "\n".join(parts)
+
     @staticmethod
-    def _build_context(chunks: list[RetrievedChunk], strip_user_subject: bool = False) -> str:
+    def _build_context(chunks: list[RetrievedChunk], strip_user_subject: bool = False, user_names: list[str] | None = None) -> str:
         if not chunks:
             return "（无相关工作记录）"
         parts = []
@@ -333,6 +480,13 @@ class RagPipeline:
             activity_type = chunk.metadata.get("activity_type")
             content_origin = chunk.metadata.get("content_origin")
             importance = chunk.metadata.get("importance")
+            text = chunk.text[:_MAX_CHUNK_LEN]
+            if strip_user_subject:
+                text = _strip_report_metadata(text)
+                text = _strip_user_subject(text, user_names=user_names)
+                # 报告模式下不向 LLM 暴露看到时间/来源/活动等元数据，避免污染正式输出
+                parts.append(f"[{i}] {text}")
+                continue
             prefix: list[str] = [f"[{i}][{source}]"]
             if observed_at:
                 prefix.append(f"看到时间={_format_ts(observed_at)}")
@@ -347,11 +501,7 @@ class RagPipeline:
                 prefix.append(f"活动={activity_type}")
             if content_origin:
                 prefix.append(f"来源={content_origin}")
-            if importance is not None:
-                prefix.append(f"重要性={importance}")
-            text = chunk.text[:_MAX_CHUNK_LEN]
-            if strip_user_subject:
-                text = _strip_user_subject(text)
+            # importance 仅作内部排序依据，不放入上下文文本（避免 LLM 在输出中暴露元数据）
             parts.append(f"{' '.join(prefix)} {text}")
         return "\n\n".join(parts)
 
@@ -384,6 +534,15 @@ class RagPipeline:
             # 报告模式下直接丢弃 importance=1 的极低价值记录
             if is_report_mode and (chunk.metadata.get("importance") or 3) <= 1:
                 continue
+            # 报告模式下，reading 类活动（查看/阅读文档）importance < 4 时过滤掉
+            # 避免"查看了XX文档"这类无产出价值的流水账进入报告
+            if is_report_mode and chunk.metadata.get("activity_type") == "reading" and (chunk.metadata.get("importance") or 3) < 4:
+                continue
+            # 报告模式下，activity_type 为空且 overview 中含典型"查看"行为描述的记录过滤掉
+            if is_report_mode and not chunk.metadata.get("activity_type"):
+                text_lower = chunk.text.lower()
+                if any(kw in chunk.text for kw in ("在查看", "在浏览", "在阅读", "查看了", "浏览了", "阅读了")):
+                    continue
             doc_key = chunk.doc_key or chunk.metadata.get("doc_key")
             if not doc_key or doc_key in selected_keys:
                 continue
@@ -407,20 +566,21 @@ class RagPipeline:
 
         # ── 任务型意图检测（优先级最高）──────────────────────────────────
         _WEEKLY_REPORT_TOKENS  = ("周报", "工作周报", "weekly report")
-        _DAILY_REPORT_TOKENS   = ("日报", "工作日报", "今日工作总结", "今天工作总结", "daily report")
+        _DAILY_REPORT_TOKENS   = ("日报", "工作日报", "今日工作总结", "今天工作总结", "daily report", "工作日记", "今日日记")
         _PROJECT_SUMMARY_TOKENS = ("项目总结", "项目报告", "项目复盘", "项目回顾", "project summary", "项目里程碑", "milestone")
-        _WRITE_TASK_TOKENS     = ("帮我写", "帮我生成", "帮我整理", "生成一份", "写一份", "整理一份", "写下", "生成下", "帮忙写", "帮我做")
+        _WRITE_TASK_TOKENS     = ("帮我写", "帮我生成", "帮我整理", "生成一份", "写一份", "整理一份", "写下", "生成下", "帮忙写", "帮我做", "生成")
 
         _is_weekly_report   = any(t in user_query for t in _WEEKLY_REPORT_TOKENS)
         _is_daily_report    = any(t in user_query for t in _DAILY_REPORT_TOKENS)
         _is_project_summary = any(t in user_query for t in _PROJECT_SUMMARY_TOKENS)
         _is_write_intent    = any(t in user_query for t in _WRITE_TASK_TOKENS)
 
-        if _is_write_intent and _is_project_summary:
+        # 报告类意图：只要含报告关键词即触发，无需额外的"帮我写"前缀
+        if _is_project_summary:
             task_type = "project_summary"
-        elif _is_write_intent and _is_weekly_report:
+        elif _is_weekly_report:
             task_type = "weekly_report"
-        elif _is_write_intent and _is_daily_report:
+        elif _is_daily_report:
             task_type = "daily_report"
 
         # ── 时间范围解析 ─────────────────────────────────────────────────
@@ -632,27 +792,229 @@ def _is_noise_chunk(chunk: RetrievedChunk) -> bool:
 
 
 
-def _strip_user_subject(text: str) -> str:
-    """从知识条目文本中去掉多余的'用户'主语，适用于报告生成。"""
+def _postprocess_strip_subjects(text: str, user_names: list[str]) -> str:
+    """对 LLM 最终输出做后处理，去掉人名和第三人称代词作主语。"""
     import re
+    if not text:
+        return text
+
+    name_parts = ["用户"]
+    for name in (user_names or []):
+        if name:
+            name_parts.append(re.escape(name))
+    subject_re = "|".join(name_parts)
+
+    # 实义动词：去掉名字后保留
+    verb_prefix = "使用|完成|开始|查看|讨论|编辑|设计|生成|发送|参与|调用|更新|优化|实现|修复|确认|选择|提出|决定|负责|进行|尝试|整理|分析|构建|调试|部署|配置|在|对|与|通过|于|并|已|正在"
+
     lines = text.split("\n")
     result = []
     for line in lines:
-        if "用户" not in line:
-            result.append(line)
+        # 1. 冒号后「人名」→ 只去名字，保留后续所有词（含介词/动词）
+        line = re.sub(rf"([:：])(?:{subject_re})", r"\1", line)
+        # 2. 逗号后夹入型「，人名」→ 去名字
+        line = re.sub(rf"，(?:{subject_re})", "，", line)
+        # 3. 行首或句首人名 → 去掉名字（保留后续词）
+        line = re.sub(rf"^(?:{subject_re})", "", line.lstrip())
+        # 4. 句中任意位置残留人名紧跟动词/介词 → 去名字
+        line = re.sub(rf"(?:{subject_re})(?=(?:{verb_prefix}))", "", line)
+        # 5. 他/她作主语 → 去掉
+        line = re.sub(rf"(?<![的地得])(?:他|她)(?:们)?(?=(?:{verb_prefix}))", "", line)
+        # 6. 清理标点后多余空格
+        line = re.sub(r"([:：])\s+", r"\1", line)
+        result.append(line)
+    return "\n".join(result)
+
+
+def _normalize_weekly_report(text: str) -> str:
+    """对周报结果做轻量格式修正，提升小模型输出稳定性。"""
+    import re
+
+    if not text:
+        return text
+
+    text = text.replace("### ", "## ")
+    lines = [line.rstrip() for line in text.split("\n")]
+
+    # 丢弃模型回显的原始工作记录
+    cut_markers = ("工作记录：", "以下是本周真实工作记录", "原始工作记录：")
+    trimmed = []
+    for line in lines:
+        if any(marker in line for marker in cut_markers):
+            break
+        trimmed.append(line)
+    lines = trimmed
+
+    # 删除占位词
+    cleaned = []
+    placeholder_patterns = (
+        r"^[-*]?\s*无相关内容[。.]?$",
+        r"^[-*]?\s*暂无相关内容[。.]?$",
+        r"^[-*]?\s*暂无[。.]?$",
+        r"^[-*]?\s*无[。.]?$",
+        r"^[-*]?\s*暂无相关风险[。.]?$",
+        r"^[-*]?\s*无相关风险[。.]?$",
+        r"^[-*]?\s*暂无风险[。.]?$",
+        r"^[-*]?\s*无风险[。.]?$",
+        r"^[-*]?\s*暂无阻塞[。.]?$",
+        r"^[-*]?\s*无阻塞[。.]?$",
+    )
+    for line in lines:
+        line = line.replace("具体可交付目标：", "")
+        line = line.replace("项目名：", "")
+        line = line.replace("短标题：", "")
+        line = line.replace("详细描述：", "")
+        line = line.replace("风险点：", "")
+        if any(re.match(pattern, line.strip()) for pattern in placeholder_patterns):
             continue
-        # "概述：用户在/将/..." → "概述："
-        line = re.sub(
-            r"(概述：|详情：)(用户(?:在|对|与|通过|使用|于|并|已)?)",
-            r"\1",
-            line,
-        )
-        # 句首或行首 "用户在/用户" → 去掉"用户"，保留后面的介词（将/把等）
-        line = re.sub(
-            r"^(用户(?:在|对|与|通过|使用|于|并|已)?)",
-            "",
-            line.lstrip(),
-        )
+        cleaned.append(line.rstrip())
+    lines = cleaned
+
+    section_aliases = {
+        "本周核心产出": "## 本周核心产出",
+        "项目进展": "## 项目进展",
+        "下周计划": "## 下周计划",
+        "风险/阻塞": "## 风险/阻塞",
+        "风险阻塞": "## 风险/阻塞",
+    }
+
+    normalized = []
+    current_section = None
+    last_bullet_idx = None
+
+    def _ensure_section(section_name: str):
+        nonlocal current_section
+        header = section_aliases[section_name]
+        if current_section != header:
+            if normalized and normalized[-1] != "":
+                normalized.append("")
+            normalized.append(header)
+            current_section = header
+
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+
+        # 标题归一化
+        matched_header = None
+        for alias, header in section_aliases.items():
+            if line == header or line == alias or line == f"- **{alias}**：" or line.startswith(f"{alias}："):
+                matched_header = alias
+                break
+        if matched_header:
+            _ensure_section(matched_header)
+            last_bullet_idx = None
+            continue
+
+        # “重要性：”并到上一条 bullet
+        if line.startswith(("重要性：", "- 重要性：", "**重要性**：")) and last_bullet_idx is not None:
+            extra = re.sub(r"^(?:-\s*)?(?:\*\*重要性\*\*：|重要性：)", "", line).strip()
+            normalized[last_bullet_idx] = normalized[last_bullet_idx].rstrip() + f" {extra}"
+            continue
+
+        # 如果还没进入任何章节，根据内容猜测章节
+        if current_section is None:
+            if "已完成" in line or "进行中" in line or "待启动" in line:
+                _ensure_section("项目进展")
+            elif any(k in line for k in ("风险", "阻塞", "受阻")):
+                _ensure_section("风险/阻塞")
+            else:
+                _ensure_section("本周核心产出")
+
+        # 项目进展中，把散行转成 bullet，并跳过空洞占位内容
+        if current_section == "## 项目进展":
+            if re.fullmatch(r"(?:无相关内容|暂无相关内容|暂无|无)[。.]?", line):
+                continue
+            if not line.startswith("-"):
+                line = f"- {line}"
+            normalized.append(line)
+            last_bullet_idx = len(normalized) - 1
+            continue
+
+        # 下周计划/风险阻塞统一 bullet，并跳过空洞占位内容
+        if current_section in ("## 下周计划", "## 风险/阻塞"):
+            if re.fullmatch(r"(?:无相关内容|暂无相关内容|暂无|无|暂无相关风险|无相关风险|暂无风险|无风险|暂无阻塞|无阻塞)[。.]?", line):
+                continue
+            if not line.startswith("-"):
+                line = f"- {line}"
+
+        normalized.append(line)
+        last_bullet_idx = len(normalized) - 1 if line.startswith("-") else None
+
+    # 删除空章节
+    result = []
+    i = 0
+    while i < len(normalized):
+        line = normalized[i]
+        if line.startswith("## "):
+            j = i + 1
+            has_content = False
+            while j < len(normalized) and not normalized[j].startswith("## "):
+                candidate = normalized[j].strip()
+                if candidate and candidate != "-" and not re.fullmatch(r"-?\s*(?:无相关内容|暂无相关内容|暂无|无|暂无相关风险|无相关风险|暂无风险|无风险|暂无阻塞|无阻塞)[。.]?", candidate):
+                    has_content = True
+                    break
+                j += 1
+            if has_content:
+                if result and result[-1] != "":
+                    result.append("")
+                result.append(line)
+            i += 1
+            continue
+        if result and result[-1].startswith("## ") and line == "":
+            i += 1
+            continue
+        if line.strip() and line.strip() != "-":
+            result.append(line)
+        i += 1
+
+    return "\n".join(result).strip()
+
+
+def _strip_report_metadata(text: str) -> str:
+    """报告模式下清理知识条目中的元数据行，只保留概述/详情正文。"""
+    lines = []
+    for raw_line in text.split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith((
+            "看到时间：", "记录时间：", "事件时间：", "时长：", "应用：", "窗口：",
+            "活动类型：", "内容来源：", "重要性：", "来源："
+        )):
+            continue
+        if line.startswith("概述："):
+            lines.append(line[len("概述："):].strip())
+            continue
+        if line.startswith("详情："):
+            lines.append(line[len("详情："):].strip())
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _strip_user_subject(text: str, user_names: list[str] | None = None) -> str:
+    """从知识条目文本中去掉多余的人物主语（用户/姓名/他/她），适用于报告生成。"""
+    import re
+    lines = text.split("\n")
+    result = []
+
+    verb_prefix = "使用|完成|开始|查看|讨论|编辑|设计|生成|发送|参与|调用|更新|优化|实现|修复|进行|尝试|整理|分析|构建|调试|部署|配置|在|对|与|通过|于|并|已|继续|打开|运行|执行|创建|删除|修改|处理|获取|请求|提交|确认|检查|测试|发现|遇到|解决|正在|切换|记录|还|又|也|提出|建议|反馈|询问|回复|表示|指出|认为|说|要求|决定|确定|选择|发起|负责|主导"
+
+    name_pattern_parts = ["用户"]
+    if user_names:
+        for name in user_names:
+            if name:
+                name_pattern_parts.append(re.escape(name))
+    subject_re = "|".join(name_pattern_parts)
+
+    for line in lines:
+        line = re.sub(rf"(概述：|详情：)(?:{subject_re})", r"\1", line)
+        line = re.sub(rf"，(?:{subject_re})", "，", line)
+        line = re.sub(rf"^(?:{subject_re})", "", line.lstrip())
+        line = re.sub(rf"(?:{subject_re})(?=(?:{verb_prefix}))", "", line)
+        line = re.sub(rf"(?<![的地得])(?:他|她)(?:们)?(?=(?:{verb_prefix}))", "", line)
         result.append(line)
     return "\n".join(result)
 

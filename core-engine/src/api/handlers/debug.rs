@@ -107,3 +107,55 @@ pub async fn system_stats(
         last_capture_ts: last_capture,
     }))
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 清空提炼队列
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct ClearExtractionQueueResponse {
+    pub cleared: i64,
+}
+
+/// POST /api/debug/clear-extraction-queue
+///
+/// 在 knowledge_entries 插入一条占位记录，然后将所有 knowledge_id IS NULL 的
+/// capture 指向该占位记录，从而跳过知识提炼处理。
+pub async fn clear_extraction_queue(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ClearExtractionQueueResponse>, ApiError> {
+    let cleared = state.storage
+        .with_conn_async(|conn| {
+            // 1. 找一个待处理 capture 的 id 用于满足外键约束
+            let first_capture_id: Option<i64> = conn.query_row(
+                "SELECT id FROM captures WHERE knowledge_id IS NULL LIMIT 1",
+                [],
+                |r| r.get(0),
+            ).ok();
+
+            let Some(capture_id) = first_capture_id else {
+                return Ok(0i64); // 队列为空
+            };
+
+            // 2. 插入占位 knowledge_entry
+            conn.execute(
+                "INSERT INTO knowledge_entries (capture_id, summary, overview, importance, is_self_generated)
+                 VALUES (?, '[SKIPPED]', '队列清空占位记录', 0, 1)",
+                rusqlite::params![capture_id],
+            ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+
+            let skip_id = conn.last_insert_rowid();
+
+            // 3. 批量将待处理 captures 指向该占位记录
+            let n = conn.execute(
+                "UPDATE captures SET knowledge_id = ? WHERE knowledge_id IS NULL",
+                rusqlite::params![skip_id],
+            ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+
+            Ok(n as i64)
+        })
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    Ok(Json(ClearExtractionQueueResponse { cleared }))
+}

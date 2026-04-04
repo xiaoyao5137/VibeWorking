@@ -31,6 +31,7 @@ const EMPTY_OVERVIEW: MonitorOverview = {
   knowledge_flow: {
     today_count: 0,
     period_count: 0,
+    pending_extraction_count: 0,
     by_time: [],
     recent: [],
   },
@@ -414,6 +415,8 @@ const OverviewContent: React.FC<{ data: MonitorOverview; range: OverviewRange }>
           sub={`数据库 ${fmtBytes(data?.db_size_bytes ?? 0)}`} color="#32ADE6" />
         <StatCard label="知识提炼" value={fmt(knowledge_flow.period_count)}
           sub={`今日 ${fmt(knowledge_flow.today_count)}`} color="#BF5AF2" />
+        <StatCard label="提炼等待队列" value={fmt(knowledge_flow.pending_extraction_count)}
+          sub="待提炼 captures" color="#FF9500" />
         <StatCard label="向量化率" value={`${(capture_flow.vectorization_rate * 100).toFixed(0)}%`}
           sub={`已入索引 ${fmt(capture_flow.vectorized_count)}/${fmt(capture_flow.eligible_count)}`} color="#5E5CE6" />
         <StatCard label="知识化率" value={`${(capture_flow.knowledge_generation_rate * 100).toFixed(0)}%`}
@@ -449,10 +452,21 @@ const OverviewContent: React.FC<{ data: MonitorOverview; range: OverviewRange }>
         {knowledge_flow.by_time.length > 0 ? (
           <>
             <SparkLine
-              data={knowledge_flow.by_time.map((t) => ({ ts: t.ts, value: t.count }))}
-              color="#BF5AF2"
+              series={[
+                {
+                  label: '已提炼',
+                  color: '#BF5AF2',
+                  data: knowledge_flow.by_time.map((t) => ({ ts: t.ts, value: t.count })),
+                  valueFormatter: (value) => `${value} 条`,
+                },
+                {
+                  label: '等待队列',
+                  color: '#FF9500',
+                  data: knowledge_flow.by_time.map((t) => ({ ts: t.ts, value: knowledge_flow.pending_extraction_count })),
+                  valueFormatter: (value) => `${value} 待提炼`,
+                },
+              ]}
               height={50}
-              valueFormatter={(value) => `${value} 条`}
               axisFormatter={(ts) => fmtOverviewAxisTs(ts, range)}
               detailFormatter={(point) => `${fmtTs(point.ts)} · ${point.value} 条知识`}
             />

@@ -4,7 +4,7 @@
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from model_manager import ModelManager, ModelType
+from model_manager import ModelManager, ModelType, AVAILABLE_MODELS as MANAGER_MODELS
 from model_registry import AVAILABLE_MODELS, get_recommendations, get_model, list_models as registry_list
 import psutil
 import logging
@@ -12,6 +12,7 @@ import dataclasses
 import json
 import sqlite3
 import time
+import fcntl
 from pathlib import Path
 
 from monitor.llm_tracker import estimate_tokens, log_llm_usage
@@ -21,9 +22,14 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
+# RAG 查询期间持有此文件锁，阻止知识提炼同时占用 Ollama
+_RAG_LOCK_FILE = "/tmp/memory-bread-rag.lock"
+_rag_lock_fd = open(_RAG_LOCK_FILE, "w")
+
 # 初始化模型管理器
 model_manager = ModelManager()
 _rag_pipeline = None
+_rag_pipeline_lock = __import__('threading').Lock()
 DB_PATH = str(Path.home() / ".memory-bread" / "memory-bread.db")
 
 
@@ -56,31 +62,41 @@ def _save_rag_session(query: str, prompt_used: str, answer: str, contexts: list[
 
 
 def get_rag_pipeline():
-    """懒加载 RAG pipeline，共用 7071 服务暴露 /query。"""
+    """懒加载 RAG pipeline，共用 7071 服务暴露 /query。线程安全。"""
     global _rag_pipeline
     if _rag_pipeline is None:
-        logger.info("初始化 RAG pipeline...")
-        from embedding.model import EmbeddingModel
-        from rag.retriever import VectorRetriever, KnowledgeFts5Retriever, Fts5Retriever
-        from rag.llm.ollama import OllamaBackend
-        from rag.pipeline import RagPipeline
+        with _rag_pipeline_lock:
+            if _rag_pipeline is None:
+                logger.info("初始化 RAG pipeline...")
+                from embedding.model import EmbeddingModel
+                from rag.retriever import VectorRetriever, KnowledgeFts5Retriever, Fts5Retriever
+                from rag.llm.ollama import OllamaBackend
+                from rag.pipeline import RagPipeline
 
-        db_path = str(Path.home() / ".memory-bread" / "memory-bread.db")
-        qdrant_path = str(Path.home() / ".qdrant")
+                db_path = str(Path.home() / ".memory-bread" / "memory-bread.db")
+                qdrant_path = str(Path.home() / ".qdrant")
+                active_llm_id = model_manager.config.get('active_llm', 'qwen3.5-4b')
+                active_llm = MANAGER_MODELS.get(active_llm_id)
+                ollama_model = active_llm.model_id if active_llm else 'qwen3.5:4b'
 
-        _rag_pipeline = RagPipeline(
-            embedding_model=EmbeddingModel.create_default(),
-            vector_retriever=VectorRetriever(
-                collection="memory_bread_captures",
-                qdrant_path=qdrant_path,
-            ),
-            fts5_retriever=Fts5Retriever(db_path=db_path),
-            knowledge_retriever=KnowledgeFts5Retriever(db_path=db_path),
-            llm=OllamaBackend(model="qwen2.5:3b", timeout=300),
-            top_k=5,
-            db_path=db_path,
-        )
-        logger.info("RAG pipeline 初始化完成")
+                _rag_pipeline = RagPipeline(
+                    embedding_model=EmbeddingModel.create_default(),
+                    vector_retriever=VectorRetriever(
+                        collection="memory_bread_captures",
+                        qdrant_path=qdrant_path,
+                    ),
+                    fts5_retriever=Fts5Retriever(db_path=db_path),
+                    knowledge_retriever=KnowledgeFts5Retriever(db_path=db_path),
+                    llm=OllamaBackend(model=ollama_model, timeout=180, num_predict=1536),
+                    top_k=5,
+                    db_path=db_path,
+                )
+                # 强制预热 embedding，避免首次查询时再加载 BGE 导致超时
+                try:
+                    _rag_pipeline._embed.encode(["预热"])
+                except Exception as e:
+                    logger.warning(f"Embedding 预热失败: {e}")
+                logger.info(f"RAG pipeline 初始化完成，模型: {ollama_model}")
     return _rag_pipeline
 
 
@@ -233,10 +249,11 @@ def validate_model(model_id: str):
 @app.route('/api/models/<model_id>/download', methods=['POST'])
 def download_model(model_id: str):
     try:
-        success = model_manager.download_model(model_id)
-        if success:
-            return jsonify({'status': 'ok', 'message': f'模型 {model_id} 下载已启动'})
-        return jsonify({'status': 'error', 'message': f'模型 {model_id} 下载失败'}), 500
+        result = model_manager.download_model(model_id)
+        status = result.get('status', 'error') if isinstance(result, dict) else ('ok' if result else 'error')
+        if status in ('ok', 'downloading', 'pending'):
+            return jsonify({'status': 'ok', 'message': result.get('message', f'模型 {model_id} 下载已启动') if isinstance(result, dict) else f'模型 {model_id} 下载已启动'})
+        return jsonify({'status': 'error', 'message': result.get('message', f'模型 {model_id} 下载失败') if isinstance(result, dict) else f'模型 {model_id} 下载失败'}), 500
     except Exception as e:
         logger.error(f"下载模型失败: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -244,9 +261,12 @@ def download_model(model_id: str):
 
 @app.route('/api/models/<model_id>/activate', methods=['POST'])
 def activate_model(model_id: str):
+    global _rag_pipeline
     try:
         success = model_manager.activate_model(model_id)
         if success:
+            with _rag_pipeline_lock:
+                _rag_pipeline = None
             return jsonify({'status': 'ok', 'message': f'模型 {model_id} 已激活'})
         return jsonify({'status': 'error', 'message': f'模型 {model_id} 激活失败'}), 500
     except Exception as e:
@@ -304,7 +324,12 @@ def rag_query():
         logger.info(f"收到 RAG 查询: {query}")
 
         pipeline = get_rag_pipeline()
-        result = pipeline.query(query, top_k=top_k)
+        # 持有 RAG 锁，阻止知识提炼同时占用 Ollama
+        fcntl.flock(_rag_lock_fd, fcntl.LOCK_EX)
+        try:
+            result = pipeline.query(query, top_k=top_k)
+        finally:
+            fcntl.flock(_rag_lock_fd, fcntl.LOCK_UN)
 
         contexts = [
             {
@@ -387,5 +412,11 @@ def _get_hardware() -> dict:
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    app.run(host='0.0.0.0', port=7071, debug=True)
+    # 启动时同步预热 RAG pipeline，避免首个查询遭遇 embedding 冷启动超时
+    try:
+        get_rag_pipeline()
+        logger.info('RAG pipeline 预热完成')
+    except Exception as e:
+        logger.warning(f'RAG pipeline 预热失败: {e}')
+    app.run(host='0.0.0.0', port=7071, debug=False, threaded=True)
 

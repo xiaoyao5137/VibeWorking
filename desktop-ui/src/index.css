@@ -150,7 +150,7 @@ body {
 
 .rag-panel__header {
   padding: 24px 32px;
-  background: linear-gradient(135deg, #4a90e2 0%, #357abd 100%);
+  background: linear-gradient(135deg, #D4860B 0%, #B86F0A 100%);
   color: white;
   display: flex;
   justify-content: space-between;
@@ -164,8 +164,8 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
   min-width: 0;
+  flex-shrink: 0;
 }
 
 .rag-panel__title {
@@ -214,8 +214,8 @@ body {
 }
 
 .rag-panel__input:focus {
-  border-color: #4a90e2;
-  box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
+  border-color: #D4860B;
+  box-shadow: 0 0 0 3px rgba(212, 134, 11, 0.15);
 }
 
 .rag-panel__input::placeholder {
@@ -223,21 +223,26 @@ body {
 }
 
 .rag-panel__submit {
-  padding: 14px 32px;
-  background: linear-gradient(135deg, #4a90e2 0%, #357abd 100%);
+  padding: 12px 28px;
+  background: linear-gradient(135deg, #D4860B 0%, #B86F0A 100%);
   color: white;
   border: none;
   border-radius: 12px;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(74, 144, 226, 0.25);
+  box-shadow: 0 4px 12px rgba(212, 134, 11, 0.35);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .rag-panel__submit:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 6px 16px rgba(212, 134, 11, 0.5);
 }
 
 .rag-panel__submit:disabled {
@@ -262,6 +267,56 @@ body {
   border-radius: 16px;
   border: 2px solid #e2e8f0;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+/* Markdown 渲染区样式 */
+.rag-panel__answer-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 15px;
+  color: #2d3748;
+}
+
+.rag-panel__copy-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #718096;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.rag-panel__copy-btn:hover {
+  color: #4a5568;
+  border-color: #cbd5e0;
+  background: #f7fafc;
+}
+
+.rag-panel__copy-btn--copied {
+  color: #38a169;
+  border-color: #9ae6b4;
+  background: #f0fff4;
+}
+
+/* 加载旋转动画 */
+@keyframes rag-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.rag-panel__loading-icon {
+  animation: rag-spin 0.8s linear infinite;
+  transform-origin: center;
 }
 
 /* Markdown 渲染区样式 */
@@ -322,6 +377,33 @@ body {
 .rag-panel__answer-content--markdown *:first-child { margin-top: 0; }
 .rag-panel__answer-content--markdown *:last-child { margin-bottom: 0; }
 
+/* 表格样式 */
+.rag-panel__answer-content--markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.rag-panel__answer-content--markdown th,
+.rag-panel__answer-content--markdown td {
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.rag-panel__answer-content--markdown th {
+  background: #edf2f7;
+  font-weight: 600;
+  color: #2d3748;
+}
+
+.rag-panel__answer-content--markdown tr:nth-child(even) td {
+  background: #f7fafc;
+}
+
 .rag-panel__answer-text {
   font-size: 16px;
   line-height: 1.8;
@@ -335,6 +417,17 @@ body {
   background: white;
   border-radius: 16px;
   border: 2px solid #e2e8f0;
+}
+
+.rag-panel__contexts-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #4a5568;
+  white-space: nowrap;
 }
 
 .rag-panel__contexts-title {

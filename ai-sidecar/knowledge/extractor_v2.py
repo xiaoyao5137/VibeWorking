@@ -5,11 +5,29 @@
 import json
 import logging
 import re
+import urllib.request
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# RAG 查询优先锁：model_api_server 在 RAG 调用期间持有此文件锁。
+# 知识提炼在调 LLM 前非阻塞 acquire；拿不到则跳过本轮，让 RAG 优先完成。
+_RAG_LOCK_FILE = "/tmp/memory-bread-rag.lock"
+
+
+def _rag_is_active() -> bool:
+    """非阻塞检测 RAG 查询是否正在占用 Ollama。True 表示忙，提炼应跳过本轮。"""
+    import fcntl
+    try:
+        fd = open(_RAG_LOCK_FILE, "w")
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        fd.close()
+        return False  # 成功拿到锁 → RAG 不在跑
+    except (IOError, OSError):
+        return True   # 拿不到锁 → RAG 正在占用 Ollama
 
 
 def _extract_json_object(raw: str) -> Optional[Dict[str, Any]]:
@@ -216,7 +234,8 @@ class KnowledgeExtractorV2:
         """
         try:
             from ollama import Client
-            self.client = Client()
+            # 每次 LLM 调用最多等 90 秒，避免长时间独占 Ollama 导致 RAG 查询超时
+            self.client = Client(timeout=90)
             self.model = model
 
             # 测试模型是否可用
@@ -277,7 +296,8 @@ class KnowledgeExtractorV2:
         self,
         overview: str,
         db_conn,
-        threshold: float = 0.85
+        threshold: float = 0.72,
+        entities: Optional[List[str]] = None,
     ) -> Optional[int]:
         """
         查找相似的知识条目
@@ -285,7 +305,8 @@ class KnowledgeExtractorV2:
         Args:
             overview: 新的概述
             db_conn: 数据库连接
-            threshold: 相似度阈值（0-1）
+            threshold: 相似度阈值（0-1），默认 0.72
+            entities: 新知识的实体列表，用于增强相似度判断
 
         Returns:
             相似知识条目的 ID，如果没有则返回 None
@@ -297,32 +318,56 @@ class KnowledgeExtractorV2:
             # 1. 获取新概述的向量
             new_embedding = self.embedding_model.encode([overview])[0]
             new_vector = np.array(new_embedding.vector)
+            new_norm = np.linalg.norm(new_vector)
+            if new_norm == 0:
+                return None
 
-            # 2. 获取所有现有知识条目
+            # 2. 获取所有现有知识条目（仅取最近 500 条，提高相关性）
             cursor = db_conn.execute(
-                "SELECT id, overview FROM knowledge_entries WHERE overview IS NOT NULL ORDER BY created_at DESC LIMIT 1000"
+                "SELECT id, overview, entities FROM knowledge_entries WHERE overview IS NOT NULL ORDER BY created_at DESC LIMIT 500"
             )
             existing_entries = cursor.fetchall()
 
             if not existing_entries:
                 return None
 
-            # 3. 计算相似度
-            for entry_id, existing_overview in existing_entries:
-                if not existing_overview:
+            # 3. 批量编码现有 overview，避免逐条调用
+            existing_ids = [row[0] for row in existing_entries]
+            existing_overviews = [row[1] or '' for row in existing_entries]
+            existing_entities_raw = [row[2] for row in existing_entries]
+
+            batch_embeddings = self.embedding_model.encode(existing_overviews)
+            existing_vectors = np.array([np.array(e.vector) for e in batch_embeddings])
+            existing_norms = np.linalg.norm(existing_vectors, axis=1)
+
+            # 4. 批量计算余弦相似度
+            valid_mask = existing_norms > 0
+            similarities = np.zeros(len(existing_entries))
+            if valid_mask.any():
+                similarities[valid_mask] = (
+                    existing_vectors[valid_mask] @ new_vector
+                ) / (existing_norms[valid_mask] * new_norm)
+
+            # 5. 实体重叠增强：同名实体出现在两条知识中，相似度+0.05
+            new_entity_set = set(e.lower() for e in (entities or []) if e)
+            for i, raw in enumerate(existing_entities_raw):
+                if not new_entity_set or not raw:
                     continue
+                try:
+                    existing_entity_set = set(e.lower() for e in json.loads(raw) if e)
+                    overlap = new_entity_set & existing_entity_set
+                    if overlap:
+                        similarities[i] += 0.05 * min(len(overlap), 2)
+                except Exception:
+                    pass
 
-                existing_embedding = self.embedding_model.encode([existing_overview])[0]
-                existing_vector = np.array(existing_embedding.vector)
-
-                # 余弦相似度
-                similarity = np.dot(new_vector, existing_vector) / (
-                    np.linalg.norm(new_vector) * np.linalg.norm(existing_vector)
-                )
-
-                if similarity >= threshold:
-                    logger.info(f"发现相似知识条目 (ID={entry_id}, 相似度={similarity:.2f})")
-                    return entry_id
+            # 6. 取相似度最高的条目
+            best_idx = int(np.argmax(similarities))
+            best_sim = float(similarities[best_idx])
+            if best_sim >= threshold:
+                entry_id = existing_ids[best_idx]
+                logger.info(f"发现相似知识条目 (ID={entry_id}, 相似度={best_sim:.2f})")
+                return entry_id
 
             return None
 
@@ -351,6 +396,10 @@ class KnowledgeExtractorV2:
 
             # 2. 调用本地 LLM（带埋点）
             logger.info(f"开始提炼采集记录 {capture_data.get('id')}")
+            # RAG 优先：若 RAG 查询正在占用 Ollama，跳过本轮提炼
+            if _rag_is_active():
+                logger.info("RAG 查询正在进行，本轮提炼跳过")
+                return None
             from monitor.llm_tracker import LLMCallTracker, estimate_tokens
             with LLMCallTracker(
                 caller="knowledge",
@@ -389,7 +438,8 @@ class KnowledgeExtractorV2:
 
             # 5. 去重检查和知识合并
             if db_conn:
-                similar_id = self._find_similar_knowledge(overview, db_conn)
+                entities = result.get('entities') or []
+                similar_id = self._find_similar_knowledge(overview, db_conn, entities=entities)
                 if similar_id:
                     # 合并知识：更新明细内容，追加新的细节
                     cursor = db_conn.execute(
@@ -508,6 +558,10 @@ class KnowledgeExtractorV2:
 
             # 2. 调用 LLM（带埋点）
             logger.info(f"合并提炼 {len(captures)} 条 captures")
+            # RAG 优先：若 RAG 查询正在占用 Ollama，跳过本轮提炼
+            if _rag_is_active():
+                logger.info("RAG 查询正在进行，本轮合并提炼跳过")
+                return None
             from monitor.llm_tracker import LLMCallTracker, estimate_tokens
             capture_ids_str = ",".join(str(c['id']) for c in captures[:5])
             with LLMCallTracker(

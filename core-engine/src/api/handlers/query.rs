@@ -50,12 +50,18 @@ pub async fn rag_query(
     let response = client
         .post(&rag_service_url)
         .json(&request_body)
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(std::time::Duration::from_secs(180))
         .send()
         .await
         .map_err(|e| {
-            tracing::warn!("无法连接到 RAG 服务: {}", e);
-            ApiError::Internal(format!("RAG 服务不可用，请确认 AI Sidecar 已正常启动: {}", e))
+            let msg = e.to_string();
+            if msg.contains("timed out") || msg.contains("timeout") {
+                tracing::warn!("RAG 服务响应超时: {}", e);
+                ApiError::Internal("AI 正在处理其他任务，请稍候再试".to_string())
+            } else {
+                tracing::warn!("无法连接到 RAG 服务: {}", e);
+                ApiError::Internal(format!("RAG 服务不可用，请确认 AI Sidecar 已正常启动: {}", e))
+            }
         })?;
 
     if response.status().is_success() {

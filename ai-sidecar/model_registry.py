@@ -38,10 +38,22 @@ AVAILABLE_MODELS: List[ModelMeta] = [
 
     # ── 本地 LLM（Ollama）────────────────────────────────────────────────────
     ModelMeta(
+        id="qwen3.5-4b", name="Qwen3.5 4B", category="llm", provider="ollama",
+        size_gb=3.4, min_memory_gb=6.0, is_default=True,
+        description="阿里通义千问 3.5，4B 参数，原生多模态，推理更强，适合 8GB+ 内存",
+        tags=["推荐", "中文优化", "多模态"],
+    ),
+    ModelMeta(
+        id="gemma4-e4b", name="Gemma 4 E4B", category="llm", provider="ollama",
+        size_gb=9.6, min_memory_gb=16.0,
+        description="Google Gemma 4，4B 有效参数，原生多模态，Apache 2.0 开源",
+        tags=["多模态", "Google"],
+    ),
+    ModelMeta(
         id="qwen2.5-3b", name="Qwen2.5 3B", category="llm", provider="ollama",
-        size_gb=2.0, min_memory_gb=4.0, is_default=True,
+        size_gb=2.0, min_memory_gb=4.0, is_default=False,
         description="阿里通义千问 2.5，3B 参数，适合 8GB 以下内存机器",
-        tags=["推荐", "轻量", "中文优化"],
+        tags=["轻量", "中文优化"],
     ),
     ModelMeta(
         id="qwen2.5-7b", name="Qwen2.5 7B", category="llm", provider="ollama",

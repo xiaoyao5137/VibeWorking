@@ -25,18 +25,21 @@
 }
 
 .buddy-sidebar-logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
+  width: 60px;
+  height: 60px;
+  border-radius: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #007AFF 0%, #0051D5 100%);
-  color: white;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  box-shadow: 0 8px 20px rgba(0, 122, 255, 0.24);
+  background: transparent;
+  overflow: hidden;
+}
+
+.buddy-sidebar-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 12px;
 }
 
 .buddy-sidebar-title-group {

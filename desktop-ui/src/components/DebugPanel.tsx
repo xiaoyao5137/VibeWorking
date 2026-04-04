@@ -40,6 +40,8 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
   const [refreshInterval, setRefreshInterval] = useState(2000)
   const [selectedCapture, setSelectedCapture] = useState<CaptureRecord | null>(null)
   const [highlightCaptureId, setHighlightCaptureId] = useState<number | null>(null)
+  const [clearingQueue, setClearingQueue] = useState(false)
+  const [clearQueueResult, setClearQueueResult] = useState<string | null>(null)
 
   // 获取最新采集记录
   const fetchCaptures = useCallback(async () => {
@@ -120,6 +122,25 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
   }, [captures])
 
   const handleClose = () => setWindowMode('buddy')
+
+  const handleClearExtractionQueue = async () => {
+    if (!window.confirm('确认清空所有待提炼 captures？此操作将跳过所有历史积压，无法恢复。')) return
+    setClearingQueue(true)
+    setClearQueueResult(null)
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/debug/clear-extraction-queue`, { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        setClearQueueResult(`已清空 ${data.cleared} 条待提炼记录`)
+      } else {
+        setClearQueueResult(`清空失败: ${data.error || '未知错误'}`)
+      }
+    } catch (e) {
+      setClearQueueResult(`请求失败: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setClearingQueue(false)
+    }
+  }
 
   const formatTimestamp = (ts: number | undefined) => {
     if (!ts) return '无'
@@ -314,6 +335,24 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ className = '' }) => {
           </div>
         </section>
       )}
+
+      {/* 后台操作 */}
+      <section className="bg-white rounded-lg shadow-sm p-6 mb-6">
+        <h2 className="text-xl font-semibold text-gray-800 mb-4">后台操作</h2>
+        <div className="flex items-center gap-4 flex-wrap">
+          <button
+            onClick={handleClearExtractionQueue}
+            disabled={clearingQueue}
+            className="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 disabled:bg-gray-300 text-sm"
+          >
+            {clearingQueue ? '清空中...' : '清空提炼队列'}
+          </button>
+          {clearQueueResult && (
+            <span className="text-sm text-gray-600">{clearQueueResult}</span>
+          )}
+        </div>
+        <p className="text-xs text-gray-400 mt-2">将所有待提炼 captures 标记为跳过，释放积压队列。</p>
+      </section>
 
       {/* 实时采集记录 */}
       <section className="bg-white rounded-lg shadow-sm p-6 mb-6">

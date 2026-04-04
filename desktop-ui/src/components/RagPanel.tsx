@@ -11,6 +11,53 @@ import React, { useCallback, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { useRagQuery } from '../hooks/useApi'
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // fallback for older browsers
+      const el = document.createElement('textarea')
+      el.value = text
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }, [text])
+
+  return (
+    <button
+      className={`rag-panel__copy-btn${copied ? ' rag-panel__copy-btn--copied' : ''}`}
+      onClick={handleCopy}
+      title="复制内容"
+      type="button"
+    >
+      {copied ? (
+        <>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+          已复制
+        </>
+      ) : (
+        <>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+            <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+          </svg>
+          复制
+        </>
+      )}
+    </button>
+  )
+}
+
 interface RagPanelProps {
   className?: string
 }
@@ -187,6 +234,7 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
               <circle cx="20" cy="8" r=".5" />
             </svg>
             <strong>AI 回答</strong>
+            <CopyButton text={ragAnswer} />
           </div>
           <div className="rag-panel__answer-content">{ragAnswer}</div>
         </div>

@@ -5,12 +5,14 @@
 1. IPC 服务器（Unix Domain Socket）
 2. 闲时计算引擎
 3. 后台任务处理
+4. 内部向量搜索 HTTP 服务（端口 7072，供 model_api_server 调用）
 """
 
 import asyncio
 import logging
 import signal
 import sys
+import threading
 from pathlib import Path
 
 from dispatcher_v2 import Dispatcher
@@ -25,6 +27,68 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+def _start_vector_search_server():
+    """在独立线程中启动内部向量搜索 HTTP 服务（端口 7072）。
+
+    该服务在 sidecar 进程内运行，复用 VectorStorage 单例已有的 Qdrant 客户端，
+    避免 model_api_server 另开 Qdrant 连接导致文件锁冲突。
+    """
+    try:
+        from flask import Flask, jsonify, request as flask_request
+
+        _vs_app = Flask("vector_search_internal")
+
+        @_vs_app.route('/vector_search', methods=['POST'])
+        def vector_search():
+            data = flask_request.get_json()
+            if not data or 'query_vector' not in data:
+                return jsonify({'error': 'missing query_vector'}), 400
+            query_vector = data['query_vector']
+            top_k = int(data.get('top_k', 10))
+            score_threshold = float(data.get('score_threshold', 0.3))
+
+            try:
+                from embedding.vector_storage import get_vector_storage
+                vs = get_vector_storage()
+                client = vs._get_qdrant_client()
+                if client is None:
+                    return jsonify({'error': 'Qdrant client not available'}), 503
+
+                results = client.query_points(
+                    collection_name=vs._collection_name,
+                    query=query_vector,
+                    limit=top_k,
+                    score_threshold=score_threshold,
+                ).points
+
+                hits = []
+                for hit in results:
+                    payload = dict(hit.payload or {})
+                    capture_id = int(payload.get('capture_id') or 0)
+                    doc_key = payload.get('doc_key') or f"capture:{capture_id}"
+                    hits.append({
+                        'capture_id': capture_id,
+                        'doc_key': doc_key,
+                        'text': payload.get('text', ''),
+                        'score': float(hit.score),
+                        'source': 'vector',
+                        'metadata': payload,
+                    })
+                return jsonify({'results': hits})
+            except Exception as e:
+                logger.error("vector_search 失败: %s", e)
+                return jsonify({'error': str(e)}), 500
+
+        @_vs_app.route('/health', methods=['GET'])
+        def health():
+            return jsonify({'status': 'ok', 'service': 'vector_search'})
+
+        logger.info("启动内部向量搜索服务 (port 7072)...")
+        _vs_app.run(host='127.0.0.1', port=7072, debug=False, threaded=True, use_reloader=False)
+    except Exception as e:
+        logger.warning("内部向量搜索服务启动失败（不影响主服务）: %s", e)
 
 
 class SidecarServer:
@@ -131,6 +195,10 @@ class SidecarServer:
 async def main():
     """主函数"""
     server = SidecarServer()
+
+    # 启动内部向量搜索 HTTP 服务（daemon 线程，进程退出时自动结束）
+    vs_thread = threading.Thread(target=_start_vector_search_server, daemon=True, name="vector-search-server")
+    vs_thread.start()
 
     # 注册信号处理
     loop = asyncio.get_event_loop()

@@ -10,7 +10,7 @@
  *    - 有回答时：模板区折叠在参考来源下方，可展开/收起
  */
 
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { useRagQuery } from '../hooks/useApi'
 import { BUILTIN_TEMPLATES, CATEGORY_COLORS, groupTemplatesByCategory } from '../data/taskTemplates'
@@ -37,7 +37,25 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
   } = useAppStore()
 
   const [inputValue, setInputValue] = useState(ragQuery)
+  const [contextsExpanded, setContextsExpanded] = useState(false)
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const doQuery = useRagQuery()
+
+  // 内容变化时自动调整高度
+  const adjustHeight = useCallback((el: HTMLTextAreaElement) => {
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [])
+
+  // inputValue 变化时（含模板填入、外部更新）同步高度
+  useEffect(() => {
+    if (textareaRef.current) adjustHeight(textareaRef.current)
+  }, [inputValue, adjustHeight])
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputValue(e.target.value)
+    adjustHeight(e.target)
+  }, [adjustHeight])
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -55,16 +73,11 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
   )
 
   const handleTemplateClick = useCallback(
-    async (instruction: string) => {
+    (instruction: string) => {
       setInputValue(instruction)
       setRagQuery(instruction)
-      try {
-        await doQuery(instruction)
-      } catch {
-        // error is set in store by useRagQuery
-      }
     },
-    [setRagQuery, doQuery]
+    [setRagQuery]
   )
 
   const answerHtml = useMemo(() => {
@@ -83,22 +96,7 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
       {/* 标题栏 */}
       <div className="rag-panel__header" data-testid="rag-panel-header">
         <div className="rag-panel__title-group">
-          {/* 工作图标 - briefcase */}
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="rag-panel__icon"
-          >
-            <rect width="20" height="14" x="2" y="7" rx="2" ry="2" />
-            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-          </svg>
-          <h2 className="rag-panel__title">记忆面包</h2>
+          <h2 className="rag-panel__title">吃面包</h2>
         </div>
         <p className="rag-panel__subtitle">看见就会记住，记住就会理解<br />理解就能生产，生产就有希望</p>
       </div>
@@ -110,12 +108,14 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
         data-testid="rag-panel-form"
       >
         <textarea
+          ref={textareaRef}
           className="rag-panel__input"
           data-testid="rag-panel-input"
           placeholder="问我任何工作相关的问题..."
           value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
+          onChange={handleInputChange}
           rows={3}
+          style={{ resize: 'none', overflow: 'hidden' }}
           disabled={ragLoading}
         />
         <button
@@ -226,7 +226,11 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
       {/* 引用上下文 */}
       {ragContexts && ragContexts.length > 0 && (
         <div className="rag-panel__contexts" data-testid="rag-panel-contexts">
-          <div className="rag-panel__contexts-header">
+          <div
+            className="rag-panel__contexts-header"
+            onClick={() => setContextsExpanded(v => !v)}
+            style={{ cursor: 'pointer', userSelect: 'none' }}
+          >
             <svg
               width="18"
               height="18"
@@ -240,8 +244,21 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
               <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
             </svg>
             <strong>参考来源 ({ragContexts.length})</strong>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ marginLeft: 'auto', transform: contextsExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
           </div>
-          {ragContexts.map((ctx, idx) => (
+          {contextsExpanded && ragContexts.map((ctx, idx) => (
             <div
               key={idx}
               className="rag-panel__context-item"

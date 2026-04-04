@@ -57,7 +57,7 @@ AVAILABLE_MODELS = {
         model_id="qwen2.5:3b",
         size_gb=2.0,
         description="阿里通义千问 2.5，3B 参数，轻量高效，适合本地运行",
-        is_default=True
+        is_default=False
     ),
     "qwen3.5-4b": ModelInfo(
         id="qwen3.5-4b",
@@ -66,7 +66,17 @@ AVAILABLE_MODELS = {
         provider="ollama",
         model_id="qwen3.5:4b",
         size_gb=2.3,
-        description="阿里通义千问 3.5，4B 参数，适合本地运行",
+        description="阿里通义千问 3.5，4B 参数，原生多模态，推理更强",
+        is_default=True
+    ),
+    "gemma4-e4b": ModelInfo(
+        id="gemma4-e4b",
+        name="Gemma 4 (E4B)",
+        type=ModelType.LLM,
+        provider="ollama",
+        model_id="gemma4:e4b",
+        size_gb=3.3,
+        description="Google Gemma 4，4B 有效参数，原生多模态，Apache 2.0 开源",
         is_default=False
     ),
     "qwen3.5-7b": ModelInfo(
@@ -161,7 +171,7 @@ class ModelManager:
 
         # 默认配置
         return {
-            "active_llm": "qwen2.5-3b",
+            "active_llm": "qwen3.5-4b",
             "active_embedding": "bge-m3",
             "api_keys": {}
         }
@@ -490,6 +500,8 @@ class ModelManager:
             return [model_id.replace('llama3.2-', 'llama3.2:')]
         if model_id.startswith('gemma2-'):
             return [model_id.replace('gemma2-', 'gemma2:')]
+        if model_id.startswith('gemma4-'):
+            return [model_id.replace('gemma4-', 'gemma4:')]
         if model_id.startswith('deepseek-r1-'):
             return [model_id.replace('deepseek-r1-', 'deepseek-r1:')]
         return [model_id]
@@ -515,3 +527,44 @@ class ModelManager:
             return bool(cfg.get('api_key') or
                         self.config.get('api_keys', {}).get(info.provider, ''))
         return False
+
+    def activate_model(self, model_id: str) -> bool:
+        """激活指定模型，供 API server 调用"""
+        from model_registry import get_model as registry_get_model
+        meta = registry_get_model(model_id)
+        if not meta:
+            logger.error(f"activate_model: 未知模型 {model_id}")
+            return False
+        if not self._is_installed(model_id, meta):
+            logger.error(f"activate_model: 模型未安装 {model_id}")
+            return False
+        if meta.category == 'llm':
+            self.config['active_llm'] = model_id
+        elif meta.category == 'embedding':
+            self.config['active_embedding'] = model_id
+        self._save_config()
+        logger.info(f"已切换激活模型: {model_id}")
+        return True
+
+    def delete_model(self, model_id: str) -> bool:
+        """删除（卸载）指定 Ollama 模型"""
+        from model_registry import get_model as registry_get_model
+        meta = registry_get_model(model_id)
+        if not meta or meta.provider != 'ollama':
+            logger.error(f"delete_model: 不支持删除 {model_id}")
+            return False
+        aliases = self._ollama_names_for_model(model_id)
+        ollama_tag = aliases[0] if aliases else model_id
+        try:
+            result = subprocess.run(
+                ['ollama', 'rm', ollama_tag],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0:
+                logger.info(f"已删除模型: {ollama_tag}")
+                return True
+            logger.error(f"删除模型失败: {result.stderr}")
+            return False
+        except Exception as e:
+            logger.error(f"删除模型异常: {e}")
+            return False

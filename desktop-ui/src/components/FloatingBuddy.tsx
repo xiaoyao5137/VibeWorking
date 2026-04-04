@@ -26,7 +26,7 @@ interface MenuItem {
 const MENU_ITEMS: MenuItem[] = [
   {
     mode: 'rag',
-    label: '记忆面包',
+    label: '吃面包',
     testId: 'buddy-avatar',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -36,7 +36,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     mode: 'knowledge',
-    label: '知识库',
+    label: '面包仓',
     testId: 'knowledge-btn',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -48,7 +48,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     mode: 'tasks',
-    label: '定时任务',
+    label: '定时烤',
     testId: 'tasks-btn',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -59,7 +59,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     mode: 'models',
-    label: '模型管理',
+    label: '烤箱型号',
     testId: 'models-btn',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -74,7 +74,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     mode: 'monitor',
-    label: '监控',
+    label: '温度计',
     testId: 'monitor-btn',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -86,7 +86,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     mode: 'settings',
-    label: '设置',
+    label: '手艺调教',
     testId: 'settings-btn',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -106,10 +106,12 @@ const FloatingBuddy: React.FC<FloatingBuddyProps> = ({ className = '' }) => {
       data-testid="floating-buddy"
     >
       <div className="buddy-sidebar-header">
-        <div className="buddy-sidebar-logo">MB</div>
+        <div className="buddy-sidebar-logo">
+          <img src="/logo.png" alt="记忆面包" className="buddy-sidebar-logo-img" />
+        </div>
         <div className="buddy-sidebar-title-group">
           <h1 className="buddy-sidebar-title">记忆面包</h1>
-          <p className="buddy-sidebar-subtitle">功能菜单</p>
+          <p className="buddy-sidebar-subtitle">品尝新知识</p>
         </div>
       </div>
 

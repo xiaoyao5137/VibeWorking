@@ -39,7 +39,7 @@ def get_rag_pipeline():
         )
         fts5_retriever = Fts5Retriever(db_path=db_path)
         knowledge_retriever = KnowledgeFts5Retriever(db_path=db_path)
-        llm = OllamaBackend(model="qwen2.5:3b", timeout=300)  # 使用 3b 模型
+        llm = OllamaBackend(model="qwen2.5:3b", timeout=300, num_predict=1024)  # 使用 3b 模型，报告模式由 pipeline 传 num_predict=4096
 
         _rag_pipeline = RagPipeline(
             embedding_model=embedding_model,

@@ -103,6 +103,7 @@ export interface MonitorOverview {
   knowledge_flow: {
     today_count: number
     period_count: number
+    pending_extraction_count: number
     by_time: { ts: number; count: number }[]
     recent: { id: number; ts: number; summary: string; category: string; importance: number; app_name: string; win_title: string }[]
   }

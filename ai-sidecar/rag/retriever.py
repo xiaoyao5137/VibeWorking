@@ -152,6 +152,9 @@ class RetrievedChunk:
 class VectorRetriever:
     """Qdrant 向量检索器"""
 
+    # sidecar 内部向量搜索服务地址（main_v2.py 启动，避免 Qdrant 文件锁冲突）
+    _INTERNAL_SEARCH_URL = "http://127.0.0.1:7072/vector_search"
+
     def __init__(
         self,
         collection: str = "memory_bread_captures",
@@ -164,26 +167,52 @@ class VectorRetriever:
         self.port = port
         self.qdrant_path = qdrant_path
         self._client = None
+        self._use_internal_http: Optional[bool] = None  # None=未探测
+
+    def _try_internal_http(self, query_vector: list[float], top_k: int, score_threshold: float) -> Optional[list]:
+        """尝试通过 sidecar 内部 HTTP 服务做向量搜索，避免 Qdrant 文件锁冲突。"""
+        try:
+            import urllib.request, json as _json
+            payload = _json.dumps({
+                'query_vector': query_vector,
+                'top_k': top_k,
+                'score_threshold': score_threshold,
+            }).encode()
+            req = urllib.request.Request(
+                self._INTERNAL_SEARCH_URL,
+                data=payload,
+                headers={'Content-Type': 'application/json'},
+                method='POST',
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = _json.loads(resp.read())
+            return data.get('results', [])
+        except Exception:
+            return None
 
     def _get_client(self):
-        """懒加载 Qdrant 客户端"""
-        if self._client is None:
-            try:
-                from qdrant_client import QdrantClient
-
-                if self.qdrant_path:
-                    self._client = QdrantClient(path=self.qdrant_path)
-                    logger.info(f"Qdrant 本地模式已连接: {self.qdrant_path}")
-                else:
-                    self._client = QdrantClient(host=self.host or "localhost", port=self.port or 6333)
-                    logger.info(f"Qdrant 客户端已连接: {self.host}:{self.port}")
-            except Exception as e:
-                logger.error(f"连接 Qdrant 失败: {e}")
-                self._client = None
-        return self._client
+        """创建 Qdrant 直连客户端（仅当内部 HTTP 服务不可用时使用）"""
+        try:
+            from qdrant_client import QdrantClient
+            if self.qdrant_path:
+                client = QdrantClient(path=self.qdrant_path)
+            else:
+                client = QdrantClient(host=self.host or "localhost", port=self.port or 6333)
+            return client
+        except Exception as e:
+            logger.error(f"连接 Qdrant 失败: {e}")
+            return None
 
     def is_available(self) -> bool:
-        """检查 Qdrant 是否可用"""
+        """检查向量检索是否可用"""
+        # 优先检查内部 HTTP 服务
+        if self.qdrant_path:
+            try:
+                import urllib.request
+                with urllib.request.urlopen("http://127.0.0.1:7072/health", timeout=2):
+                    return True
+            except Exception:
+                pass
         return self._get_client() is not None
 
     def search(
@@ -196,6 +225,26 @@ class VectorRetriever:
         """向量相似度搜索"""
         if not query_vector:
             return []
+
+        # 本地模式：优先走 sidecar 内部 HTTP（避免 Qdrant 文件锁冲突）
+        if self.qdrant_path and filters is None:
+            raw = self._try_internal_http(query_vector, top_k, score_threshold)
+            if raw is not None:
+                chunks = []
+                for item in raw:
+                    metadata = dict(item.get('metadata') or {})
+                    metadata['retrieval_method'] = 'vector'
+                    chunks.append(RetrievedChunk(
+                        capture_id=item.get('capture_id', 0),
+                        text=item.get('text', ''),
+                        score=float(item.get('score', 0)),
+                        source='vector',
+                        metadata=metadata,
+                        doc_key=item.get('doc_key', ''),
+                    ))
+                logger.debug(f"内部向量检索返回 {len(chunks)} 条结果")
+                return chunks
+            logger.debug("内部向量搜索服务不可用，降级为直连 Qdrant")
 
         client = self._get_client()
         if not client:
@@ -517,6 +566,8 @@ class KnowledgeFts5Retriever:
         is_self_generated: bool | None = None,
         evidence_strengths: list[str] | None = None,
         query_mode: str = "lookup",
+        created_start_ts: int | None = None,
+        created_end_ts: int | None = None,
     ) -> list[RetrievedChunk]:
         try:
             conn = sqlite3.connect(self.db_path)
@@ -548,6 +599,8 @@ class KnowledgeFts5Retriever:
                 is_self_generated=is_self_generated,
                 evidence_strengths=evidence_strengths,
                 query_mode=query_mode,
+                created_start_ts=created_start_ts,
+                created_end_ts=created_end_ts,
             )
             if chunks:
                 conn.close()
@@ -571,6 +624,8 @@ class KnowledgeFts5Retriever:
                 is_self_generated=is_self_generated,
                 evidence_strengths=evidence_strengths,
                 query_mode=query_mode,
+                created_start_ts=created_start_ts,
+                created_end_ts=created_end_ts,
             )
             conn.close()
             logger.debug(f"知识库字段回退检索返回 {len(chunks)} 条结果")
@@ -597,6 +652,8 @@ class KnowledgeFts5Retriever:
         is_self_generated: bool | None,
         evidence_strengths: list[str] | None,
         query_mode: str,
+        created_start_ts: int | None = None,
+        created_end_ts: int | None = None,
     ) -> list[RetrievedChunk]:
         fts_terms = list(dict.fromkeys([*(entity_terms or []), query.strip()]))
         fts_query = _build_fts_or_query(fts_terms if query_mode == "summary" else [query.strip(), *(entity_terms or [])])
@@ -672,6 +729,12 @@ class KnowledgeFts5Retriever:
             if clause:
                 sql += f" AND k.evidence_strength IN {clause}"
                 params.extend(clause_params)
+        if created_start_ts is not None:
+            sql += " AND CAST(strftime('%s', k.created_at) AS INTEGER) * 1000 >= ?"
+            params.append(created_start_ts)
+        if created_end_ts is not None:
+            sql += " AND CAST(strftime('%s', k.created_at) AS INTEGER) * 1000 <= ?"
+            params.append(created_end_ts)
         sql, params = _apply_noise_filters(sql, params)
         if entity_terms:
             clause, clause_params = _build_like_clauses(
@@ -704,6 +767,8 @@ class KnowledgeFts5Retriever:
         is_self_generated: bool | None,
         evidence_strengths: list[str] | None,
         query_mode: str,
+        created_start_ts: int | None = None,
+        created_end_ts: int | None = None,
     ) -> list[RetrievedChunk]:
         terms = entity_terms or _extract_query_terms(query)
         if query_mode == "summary":
@@ -711,7 +776,7 @@ class KnowledgeFts5Retriever:
         terms = list(dict.fromkeys(terms))
         # 任务型宽松检索：terms 为空时允许继续，纯按时间段和 activity_types 扫描
         # 非任务型检索：terms 为空则无意义，直接返回
-        is_time_scan = not terms and (observed_start_ts is not None or start_ts is not None)
+        is_time_scan = not terms and (observed_start_ts is not None or start_ts is not None or created_start_ts is not None)
         if not terms and not is_time_scan:
             return []
 
@@ -782,6 +847,12 @@ class KnowledgeFts5Retriever:
             if clause:
                 sql += f" AND k.evidence_strength IN {clause}"
                 params.extend(clause_params)
+        if created_start_ts is not None:
+            sql += " AND CAST(strftime('%s', k.created_at) AS INTEGER) * 1000 >= ?"
+            params.append(created_start_ts)
+        if created_end_ts is not None:
+            sql += " AND CAST(strftime('%s', k.created_at) AS INTEGER) * 1000 <= ?"
+            params.append(created_end_ts)
 
         sql, params = _apply_noise_filters(sql, params)
         if terms:

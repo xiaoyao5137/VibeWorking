@@ -22,13 +22,15 @@ class OllamaBackend(LlmBackend):
 
     def __init__(
         self,
-        model:    str = "qwen2.5:7b",
-        base_url: str = "http://localhost:11434",
-        timeout:  int = 60,
+        model:       str = "qwen2.5:7b",
+        base_url:    str = "http://localhost:11434",
+        timeout:     int = 60,
+        num_predict: int = 1024,
     ) -> None:
-        self._model    = model
-        self._base_url = base_url.rstrip("/")
-        self._timeout  = timeout
+        self._model       = model
+        self._base_url    = base_url.rstrip("/")
+        self._timeout     = timeout
+        self._num_predict = num_predict
 
     def is_available(self) -> bool:
         """检查 Ollama 服务是否运行（访问 /api/tags 端点）"""
@@ -45,14 +47,15 @@ class OllamaBackend(LlmBackend):
     def complete(self, prompt: str, system: str = "", **kwargs) -> LlmResponse:
         url = f"{self._base_url}/api/generate"
         body: dict = {
-            "model":  self._model,
-            "prompt": prompt,
-            "stream": False,
+            "model":       self._model,
+            "prompt":      prompt,
+            "stream":      False,
+            "num_predict": kwargs.pop("num_predict", self._num_predict),
         }
         if system:
             body["system"] = system
         # 透传支持的模型参数
-        for key in ("temperature", "top_p", "num_predict", "seed"):
+        for key in ("temperature", "top_p", "seed"):
             if key in kwargs:
                 body[key] = kwargs[key]
 
