@@ -57,7 +57,7 @@ def list_captures():
                 k.category as knowledge_category,
                 k.importance as knowledge_importance
             FROM captures c
-            LEFT JOIN knowledge_entries k ON c.id = k.capture_id
+            LEFT JOIN episodic_memories k ON c.id = k.capture_id
             ORDER BY c.ts DESC
             LIMIT {limit}
         """)
@@ -180,8 +180,8 @@ def list_knowledge():
         cursor = conn.cursor()
 
         # 构建查询
-        query = "SELECT * FROM knowledge_entries WHERE 1=1"
-        count_query = "SELECT COUNT(*) FROM knowledge_entries WHERE 1=1"
+        query = "SELECT * FROM episodic_memories WHERE 1=1"
+        count_query = "SELECT COUNT(*) FROM episodic_memories WHERE 1=1"
         params = []
 
         if category:
@@ -235,7 +235,7 @@ def get_knowledge(entry_id):
         conn = get_db()
         cursor = conn.cursor()
 
-        cursor.execute("SELECT * FROM knowledge_entries WHERE id = ?", (entry_id,))
+        cursor.execute("SELECT * FROM episodic_memories WHERE id = ?", (entry_id,))
         row = cursor.fetchone()
         conn.close()
 
@@ -264,7 +264,7 @@ def delete_knowledge(entry_id):
         conn = get_db()
         cursor = conn.cursor()
 
-        cursor.execute("DELETE FROM knowledge_entries WHERE id = ?", (entry_id,))
+        cursor.execute("DELETE FROM episodic_memories WHERE id = ?", (entry_id,))
         conn.commit()
 
         if cursor.rowcount == 0:
@@ -286,7 +286,7 @@ def verify_knowledge(entry_id):
         cursor = conn.cursor()
 
         cursor.execute(
-            "UPDATE knowledge_entries SET user_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            "UPDATE episodic_memories SET user_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (entry_id,)
         )
         conn.commit()
@@ -316,7 +316,7 @@ def search_knowledge():
         cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT ke.* FROM knowledge_entries ke
+            SELECT ke.* FROM episodic_memories ke
             JOIN knowledge_fts kf ON ke.id = kf.rowid
             WHERE knowledge_fts MATCH ?
             ORDER BY rank

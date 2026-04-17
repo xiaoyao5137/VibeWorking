@@ -35,6 +35,8 @@ static MIGRATIONS: &[(&str, &str)] = &[
     ("011_bake_pipeline", include_str!("migrations/011_bake_pipeline.sql")),
     ("012_fix_knowledge_fts_triggers", include_str!("migrations/012_fix_knowledge_fts_triggers.sql")),
     ("013_rebuild_knowledge_fts", include_str!("migrations/013_rebuild_knowledge_fts.sql")),
+    ("014_add_knowledge_timestamp_ms", include_str!("migrations/014_add_knowledge_timestamp_ms.sql")),
+    ("015_split_knowledge_tables", include_str!("migrations/015_split_knowledge_tables.sql")),
 ];
 
 

@@ -49,9 +49,15 @@ class MockEmbeddingBackend(EmbeddingBackend):
 
 
 class MockLlmBackend(LlmBackend):
-    def __init__(self, response: str = "模拟回答", available: bool = True) -> None:
+    def __init__(
+        self,
+        response: str = "模拟回答",
+        available: bool = True,
+        model_name: str = "mock-llm",
+    ) -> None:
         self._response  = response
         self._available = available
+        self._model_name = model_name
         self.call_count = 0
         self.last_prompt: str = ""
         self.last_system: str = ""
@@ -63,11 +69,11 @@ class MockLlmBackend(LlmBackend):
         self.call_count += 1
         self.last_prompt = prompt
         self.last_system = system
-        return LlmResponse(text=self._response, model="mock-llm", tokens=10)
+        return LlmResponse(text=self._response, model=self._model_name, tokens=10)
 
     @property
     def model_name(self) -> str:
-        return "mock-llm"
+        return self._model_name
 
 
 class MockFts5Retriever:
@@ -250,7 +256,8 @@ def _init_knowledge_db(db_path: str) -> None:
             content_origin TEXT,
             activity_type TEXT,
             is_self_generated INTEGER DEFAULT 0,
-            evidence_strength TEXT
+            evidence_strength TEXT,
+            importance INTEGER DEFAULT 3
         );
         CREATE VIRTUAL TABLE knowledge_fts USING fts5(
             overview,
@@ -543,7 +550,7 @@ class TestRagPipeline:
         assert intent.observed_end_ts < this_week_start
 
     def test_weekly_report_uses_large_top_k(self):
-        """周报查询应自动扩大 top_k 到 50"""
+        """周报查询应自动扩大 top_k 到 18"""
         knowledge = MockFts5Retriever(chunks=[_chunk(1, source="knowledge")])
         vector_r = MockVectorRetriever()
         llm = MockLlmBackend()
@@ -555,13 +562,146 @@ class TestRagPipeline:
             llm=llm,
         )
         pipeline.query("帮我写工作周报")
-        # top_k * 2 = 100，knowledge 检索应收到 >= 100 的 top_k
-        assert knowledge.last_kwargs["top_k"] >= 100
+        # weekly_report 分支会将 effective_top_k 拉到至少 18，因此 knowledge 检索 top_k 至少是 36
+        assert knowledge.last_kwargs["top_k"] >= 36
+
+    def test_project_weekly_report_intent_and_kpi_mode(self):
+        intent = RagPipeline._parse_query_intent("帮我生成本周项目周报，包含OKR和KPI进展")
+        assert intent.task_type == "project_weekly_report"
+        assert intent.kpi_mode is True
+        assert intent.query_mode == "summary"
+
+    def test_weekly_report_kpi_mode_sets_flag(self):
+        intent = RagPipeline._parse_query_intent("帮我写工作周报，重点看OKR达成率")
+        assert intent.task_type == "weekly_report"
+        assert intent.kpi_mode is True
+
+    def test_project_weekly_report_prompt_requires_quant_section(self):
+        evidence_chunk = RetrievedChunk(
+            capture_id=34,
+            text="本周完成 3 项核心需求，KPI 达成率 75%，上线 2 个接口",
+            score=0.95,
+            source="knowledge",
+            doc_key="knowledge:12",
+            metadata={
+                "source_type": "knowledge",
+                "doc_key": "knowledge:12",
+                "knowledge_id": 12,
+                "capture_id": 34,
+                "importance": 5,
+                "user_verified": 1,
+                "evidence_strength": "high",
+                "activity_type": "coding",
+            },
+        )
+        llm = MockLlmBackend(model_name="qwen2.5:3b")
+        pipeline = RagPipeline(
+            embedding_model=EmbeddingModel(backend=MockEmbeddingBackend()),
+            vector_retriever=MockVectorRetriever(),  # type: ignore[arg-type]
+            fts5_retriever=MockFts5Retriever(),      # type: ignore[arg-type]
+            knowledge_retriever=MockFts5Retriever(chunks=[evidence_chunk]),  # type: ignore[arg-type]
+            llm=llm,
+        )
+
+        pipeline.query("帮我生成项目周报，包含OKR/KPI/专项进展")
+        assert "## 本周量化进展（OKR/KPI/专项）" in llm.last_prompt
+        assert "【量化证据】（仅可引用以下证据中的数字结论）" in llm.last_prompt
+        assert "证据：K#12/C#34" in llm.last_prompt
+
+    def test_quant_evidence_extractor_filters_noise_numbers(self):
+        candidate = (
+            "2026-04-15 查看文档 v1.2.3；完成 3 项接口联调，成功率 99%，耗时 30 分钟；"
+            "工单编号 12345"
+        )
+        lines = RagPipeline._extract_quant_fact_lines(candidate, kpi_mode=False)
+        assert any("完成 3 项接口联调" in line for line in lines)
+        assert all("2026-04-15" not in line for line in lines)
+
+    def test_quant_evidence_block_uses_best_evidence(self, tmp_path):
+        db_path = str(tmp_path / "captures.db")
+        _init_knowledge_db(db_path)
+
+        conn = sqlite3.connect(db_path)
+        conn.executemany(
+            """
+            INSERT INTO knowledge_entries (
+                id, capture_id, summary, overview, details, start_time, end_time, duration_minutes,
+                frag_app_name, frag_win_title, entities, category, user_verified, observed_at,
+                event_time_start, event_time_end, history_view, content_origin, activity_type,
+                is_self_generated, evidence_strength
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    21, 101, "", "本周完成 4 项需求", "本周完成 4 项需求，KPI 达成率 80%", 1_710_000_000_000,
+                    1_710_000_600_000, 60, "IDE", "", "[]", "开发", 1, 1_710_000_600_000,
+                    1_710_000_000_000, 1_710_000_600_000, 0, "live_interaction", "coding", 0, "high"
+                ),
+                (
+                    22, 102, "", "本周完成 4 项需求", "本周完成 4 项需求，KPI 达成率 80%", 1_709_000_000_000,
+                    1_709_000_600_000, 60, "IDE", "", "[]", "开发", 0, 1_709_000_600_000,
+                    1_709_000_000_000, 1_709_000_600_000, 0, "live_interaction", "coding", 0, "low"
+                ),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        chunk_high = RetrievedChunk(
+            capture_id=101,
+            text="本周完成 4 项需求，KPI 达成率 80%",
+            score=0.9,
+            source="knowledge",
+            doc_key="knowledge:21",
+            metadata={
+                "source_type": "knowledge",
+                "doc_key": "knowledge:21",
+                "knowledge_id": 21,
+                "capture_id": 101,
+                "importance": 5,
+                "user_verified": 1,
+                "evidence_strength": "high",
+                "observed_at": 1_710_000_600_000,
+                "activity_type": "coding",
+            },
+        )
+        chunk_low = RetrievedChunk(
+            capture_id=102,
+            text="本周完成 4 项需求，KPI 达成率 80%",
+            score=0.88,
+            source="knowledge",
+            doc_key="knowledge:22",
+            metadata={
+                "source_type": "knowledge",
+                "doc_key": "knowledge:22",
+                "knowledge_id": 22,
+                "capture_id": 102,
+                "importance": 2,
+                "user_verified": 0,
+                "evidence_strength": "low",
+                "observed_at": 1_709_000_600_000,
+                "activity_type": "coding",
+            },
+        )
+
+        pipeline = RagPipeline(
+            embedding_model=EmbeddingModel(backend=MockEmbeddingBackend()),
+            vector_retriever=MockVectorRetriever(),  # type: ignore[arg-type]
+            fts5_retriever=MockFts5Retriever(),      # type: ignore[arg-type]
+            knowledge_retriever=MockFts5Retriever(chunks=[chunk_high, chunk_low]),  # type: ignore[arg-type]
+            llm=MockLlmBackend(),
+            db_path=db_path,
+        )
+
+        block = pipeline._build_quant_evidence_block([chunk_high, chunk_low], kpi_mode=True, top_n=3)
+        assert "【量化证据】" in block
+        assert "K#21/C#101" in block
+        assert "K#22/C#102" not in block
 
     def test_weekly_report_system_prompt_used(self):
         """周报任务应使用专属 system prompt，而非默认 prompt"""
         knowledge = MockFts5Retriever(chunks=[_chunk(1, source="knowledge")])
-        llm = MockLlmBackend()
+        llm = MockLlmBackend(model_name="qwen2.5:3b")
         pipeline = RagPipeline(
             embedding_model=EmbeddingModel(backend=MockEmbeddingBackend()),
             vector_retriever=MockVectorRetriever(),  # type: ignore[arg-type]
@@ -571,7 +711,7 @@ class TestRagPipeline:
         )
         pipeline.query("帮我写工作周报")
         assert "周报" in llm.last_system
-        assert "活动类型" in llm.last_system
+        assert "activity_type" in llm.last_system
 
     def test_weekly_report_passes_empty_entity_terms_to_knowledge(self):
         """周报任务应传空 entity_terms，实现宽松全量时间段召回"""
@@ -754,7 +894,7 @@ class TestRagPipeline:
         assert all(chunk.metadata.get("source_type") == "knowledge" for chunk in result.contexts)
 
     def test_prompt_contains_query(self):
-        llm = MockLlmBackend()
+        llm = MockLlmBackend(model_name="qwen2.5:3b")
         pipeline = RagPipeline(
             embedding_model=EmbeddingModel(backend=MockEmbeddingBackend()),
             vector_retriever=MockVectorRetriever(),  # type: ignore[arg-type]
@@ -762,8 +902,8 @@ class TestRagPipeline:
             knowledge_retriever=MockFts5Retriever(), # type: ignore[arg-type]
             llm=llm,
         )
-        pipeline.query("今日工作总结")
-        assert "今日工作总结" in llm.last_prompt
+        pipeline.query("一个普通查询")
+        assert "一个普通查询" in llm.last_prompt
 
     def test_vector_retriever_used_when_embedding_succeeds(self):
         vector_r = MockVectorRetriever(chunks=[

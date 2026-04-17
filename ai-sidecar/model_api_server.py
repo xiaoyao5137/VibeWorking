@@ -34,7 +34,29 @@ CORS(app)
 
 # RAG 查询期间持有此文件锁，阻止知识提炼同时占用 Ollama
 _RAG_LOCK_FILE = "/tmp/memory-bread-rag.lock"
-_rag_lock_fd = open(_RAG_LOCK_FILE, "w")
+# 注意：不能在模块加载时 open() 并持有文件句柄。
+# 进程正常运行时 fd 不会被 flock，但只要进程在运行，OS 就会一直保持
+# 对该文件的引用（fd 不关闭），这会导致 _rag_is_active() 中的 flock
+# 探测行为出现竞态：当 model_api_server 本身持有该 fd 时，同进程内
+# 另一个线程的非阻塞探测会成功（同进程锁重入），但 background_processor
+# 是独立进程，会拿不到锁（如果 model_api_server crash 后 fd 未正确释放）。
+# 解决方案：每次加锁前临时 open，用 with 确保 close，彻底避免 fd 泄漏。
+_rag_lock_fd = None  # 已废弃全局 fd，改为按需打开（见 _rag_acquire_lock）
+
+
+def _rag_acquire_lock():
+    """返回一个已持有独占锁的文件对象，调用方负责 unlock + close。"""
+    fd = open(_RAG_LOCK_FILE, "w")
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def _rag_release_lock(fd):
+    """释放并关闭 _rag_acquire_lock 返回的文件对象。"""
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        fd.close()
 
 # 初始化模型管理器
 model_manager = ModelManager()
@@ -411,11 +433,12 @@ def rag_query():
 
         pipeline = get_rag_pipeline()
         # 持有 RAG 锁，阻止知识提炼同时占用 Ollama
-        fcntl.flock(_rag_lock_fd, fcntl.LOCK_EX)
+        # 使用按需 open+close 确保进程崩溃时 fd 不会永久泄漏
+        _lock_fd = _rag_acquire_lock()
         try:
             result = pipeline.query(query, top_k=top_k)
         finally:
-            fcntl.flock(_rag_lock_fd, fcntl.LOCK_UN)
+            _rag_release_lock(_lock_fd)
 
         contexts = [
             {
@@ -549,7 +572,7 @@ def extract_bake():
             trigger_reason,
         )
         extractor = get_bake_extractor()
-        fcntl.flock(_rag_lock_fd, fcntl.LOCK_EX)
+        _lock_fd = _rag_acquire_lock()
         lock_wait_ms = int(time.time() * 1000) - lock_wait_start_ms
         logger.info(
             "bake extract lock acquired source_knowledge_id=%s lock_wait_ms=%s",
@@ -559,7 +582,7 @@ def extract_bake():
         try:
             result = extractor.extract_bake_bundle(candidate)
         finally:
-            fcntl.flock(_rag_lock_fd, fcntl.LOCK_UN)
+            _rag_release_lock(_lock_fd)
             logger.info("bake extract lock released source_knowledge_id=%s", source_knowledge_id)
 
         result['trigger_reason'] = trigger_reason

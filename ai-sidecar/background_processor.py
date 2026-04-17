@@ -189,6 +189,13 @@ class BackgroundProcessor:
         finally:
             fd.close()
 
+    @staticmethod
+    def _release_process_file_lock(fd) -> None:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            fd.close()
+
     def _build_batch_summary(self, fetched_count: int, processed: int) -> dict:
         return {
             "fetched_count": fetched_count,
@@ -353,10 +360,14 @@ class BackgroundProcessor:
         if not groups_to_process:
             return batch
 
+        # 只持有 process_lock（防止多实例并发提炼），不持有 rag_priority_lock。
+        # rag_priority_lock 是给 model_api_server（RAG 查询）与 background_processor
+        # 互相谦让用的：model_api_server 持锁时 extractor 探测到后跳过本轮；
+        # 但如果 background_processor 自己也持有 rag_lock 再调用 extractor，
+        # macOS flock 同进程不可重入（errno=35），extractor 内的 _rag_is_active()
+        # 会永远返回 True，导致提炼永远被跳过。
         process_lock_fd = await asyncio.to_thread(self._acquire_process_file_lock)
-        rag_lock_fd = None
         try:
-            rag_lock_fd = await asyncio.to_thread(self._acquire_rag_priority_lock)
             processed = 0
             for group in groups_to_process:
                 await self._process_vectorization_batch(group)
@@ -364,9 +375,7 @@ class BackgroundProcessor:
                     processed += 1
                 await asyncio.sleep(0.5)
         finally:
-            if rag_lock_fd is not None:
-                await asyncio.to_thread(self._release_rag_priority_lock, rag_lock_fd)
-            await asyncio.to_thread(self._release_rag_priority_lock, process_lock_fd)
+            await asyncio.to_thread(self._release_process_file_lock, process_lock_fd)
 
         fetched_count = int(batch.get('fetched_count', 0))
         logger.info("批处理完成: processed=%s fetched=%s", processed, fetched_count)
@@ -394,7 +403,7 @@ class BackgroundProcessor:
         overview = knowledge.get('overview') or knowledge.get('summary', '')
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO knowledge_entries
+            INSERT INTO episodic_memories
             (
                 capture_id,
                 summary,
@@ -527,7 +536,7 @@ class BackgroundProcessor:
             if similar_id:
                 # 合并：occurrence_count+1，追加 details（去重保留新信息）
                 existing = conn.execute(
-                    "SELECT details FROM knowledge_entries WHERE id = ?", (similar_id,)
+                    "SELECT details FROM episodic_memories WHERE id = ?", (similar_id,)
                 ).fetchone()
                 existing_details = (existing[0] or "") if existing else ""
                 new_details = knowledge.get('details', '')
@@ -537,7 +546,7 @@ class BackgroundProcessor:
                 else:
                     merged_details = existing_details
                 conn.execute(
-                    "UPDATE knowledge_entries SET occurrence_count = occurrence_count + 1, details = ? WHERE id = ?",
+                    "UPDATE episodic_memories SET occurrence_count = occurrence_count + 1, details = ? WHERE id = ?",
                     (merged_details, similar_id),
                 )
                 conn.commit()
@@ -750,7 +759,7 @@ class BackgroundProcessor:
                 details = knowledge.get('details', '')
 
                 cursor.execute("""
-                    INSERT INTO knowledge_entries
+                    INSERT INTO episodic_memories
                     (
                         capture_id, summary, overview, details, entities, category, importance, occurrence_count,
                         observed_at, event_time_start, event_time_end, history_view, content_origin,

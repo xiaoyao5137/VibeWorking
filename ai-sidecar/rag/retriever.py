@@ -685,7 +685,7 @@ class KnowledgeFts5Retriever:
                 k.importance,
                 fts.rank as score
             FROM knowledge_fts fts
-            JOIN knowledge_entries k ON fts.rowid = k.id
+            JOIN episodic_memories k ON fts.rowid = k.id
             WHERE knowledge_fts MATCH ?
         """
         params: list[object] = [fts_query]
@@ -803,7 +803,7 @@ class KnowledgeFts5Retriever:
                 k.is_self_generated,
                 k.evidence_strength,
                 k.importance
-            FROM knowledge_entries k
+            FROM episodic_memories k
             WHERE 1=1
         """
         params: list[object] = []

@@ -47,7 +47,7 @@ app = FastAPI(title="记忆面包 Knowledge API", version="1.0.0")
 
 
 @app.get("/api/knowledge", response_model=Dict[str, Any])
-async def get_knowledge_entries(
+async def get_episodic_memories(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     category: Optional[str] = None,

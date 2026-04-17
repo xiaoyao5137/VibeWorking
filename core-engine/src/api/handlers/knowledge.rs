@@ -146,109 +146,244 @@ pub async fn list_knowledge(
     Query(params): Query<KnowledgeQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = state.storage.with_conn_async(move |conn| {
-        // 参数化查询，避免 SQL 注入
         let (entries, total) = if let Some(ref category) = params.category {
-            let mut stmt = conn.prepare(
-                "SELECT id, capture_id, summary, overview, details, entities, category, importance,
-                 occurrence_count, observed_at, event_time_start, event_time_end,
-                 history_view, content_origin, activity_type, is_self_generated,
-                 evidence_strength, user_verified, user_edited, created_at, updated_at,
-                 CAST(strftime('%s', created_at) AS INTEGER) * 1000,
-                 CAST(strftime('%s', updated_at) AS INTEGER) * 1000
-                 FROM knowledge_entries WHERE category = ?1
-                   AND summary NOT LIKE ?2
-                 ORDER BY created_at DESC LIMIT ?3 OFFSET ?4"
-            ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+            match category.as_str() {
+                "bake_article" => {
+                    let mut stmt = conn.prepare(
+                        "SELECT b.id, b.episodic_memory_id, b.summary, b.title, b.content, b.entities,
+                         b.importance, b.created_at, b.updated_at, b.created_at_ms, b.updated_at_ms
+                         FROM bake_articles b
+                         ORDER BY b.created_at DESC LIMIT ?1 OFFSET ?2"
+                    ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
 
-            let entries = stmt
-                .query_map(rusqlite::params![category, format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX), params.limit, params.offset], |row: &rusqlite::Row| {
-                    let entities_json: String = row.get(5).unwrap_or_default();
-                    let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
-                    Ok(KnowledgeEntry {
-                        id: row.get(0)?, capture_id: row.get(1)?,
-                        summary: row.get(2)?, overview: row.get(3).ok(),
-                        details: row.get(4).ok(), entities,
-                        category: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
-                        importance: row.get::<_, Option<i64>>(7)?.unwrap_or(3),
-                        occurrence_count: row.get(8).ok(),
-                        observed_at: row.get(9).ok().flatten(),
-                        event_time_start: row.get(10).ok().flatten(),
-                        event_time_end: row.get(11).ok().flatten(),
-                        history_view: row.get::<_, Option<bool>>(12)?.unwrap_or(false),
-                        content_origin: row.get(13).ok().flatten(),
-                        activity_type: row.get(14).ok().flatten(),
-                        is_self_generated: row.get::<_, Option<bool>>(15)?.unwrap_or(false),
-                        evidence_strength: row.get(16).ok().flatten(),
-                        user_verified: row.get::<_, Option<bool>>(17)?.unwrap_or(false),
-                        user_edited: row.get::<_, Option<bool>>(18)?.unwrap_or(false),
-                        created_at: row.get(19)?, updated_at: row.get(20)?,
-                        created_at_ms: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
-                        updated_at_ms: row.get::<_, Option<i64>>(22)?.unwrap_or(0),
+                    let entries = stmt.query_map(rusqlite::params![params.limit, params.offset], |row: &rusqlite::Row| {
+                        let entities_json: String = row.get(5).unwrap_or_default();
+                        let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
+                        Ok(KnowledgeEntry {
+                            id: row.get(0)?,
+                            capture_id: row.get(1)?,
+                            summary: row.get(2)?,
+                            overview: row.get::<_, Option<String>>(3).ok().flatten(),
+                            details: row.get::<_, Option<String>>(4).ok().flatten(),
+                            entities,
+                            category: "bake_article".to_string(),
+                            importance: row.get::<_, Option<i64>>(6)?.unwrap_or(3),
+                            occurrence_count: None,
+                            observed_at: None,
+                            event_time_start: None,
+                            event_time_end: None,
+                            history_view: false,
+                            content_origin: None,
+                            activity_type: None,
+                            is_self_generated: false,
+                            evidence_strength: None,
+                            user_verified: false,
+                            user_edited: false,
+                            created_at: row.get(7)?,
+                            updated_at: row.get(8)?,
+                            created_at_ms: row.get::<_, Option<i64>>(9)?.unwrap_or(0),
+                            updated_at_ms: row.get::<_, Option<i64>>(10)?.unwrap_or(0),
+                        })
                     })
-                })
-                .map_err(|e| crate::storage::StorageError::Sqlite(e))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+                    .map_err(|e| crate::storage::StorageError::Sqlite(e))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
 
-            let total: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM knowledge_entries WHERE category = ?1 AND summary NOT LIKE ?2",
-                    rusqlite::params![category, format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX)],
-                    |row| row.get(0),
-                )
-                .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+                    let total: i64 = conn.query_row("SELECT COUNT(*) FROM bake_articles", [], |row| row.get(0))
+                        .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
 
-            (entries, total)
+                    (entries, total)
+                },
+                "bake_knowledge" => {
+                    let mut stmt = conn.prepare(
+                        "SELECT b.id, b.episodic_memory_id, b.summary, b.title, b.content, b.entities,
+                         b.importance, b.created_at, b.updated_at, b.created_at_ms, b.updated_at_ms
+                         FROM bake_knowledge b
+                         ORDER BY b.created_at DESC LIMIT ?1 OFFSET ?2"
+                    ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+
+                    let entries = stmt.query_map(rusqlite::params![params.limit, params.offset], |row: &rusqlite::Row| {
+                        let entities_json: String = row.get(5).unwrap_or_default();
+                        let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
+                        Ok(KnowledgeEntry {
+                            id: row.get(0)?,
+                            capture_id: row.get(1)?,
+                            summary: row.get(2)?,
+                            overview: row.get::<_, Option<String>>(3).ok().flatten(),
+                            details: row.get::<_, Option<String>>(4).ok().flatten(),
+                            entities,
+                            category: "bake_knowledge".to_string(),
+                            importance: row.get::<_, Option<i64>>(6)?.unwrap_or(3),
+                            occurrence_count: None,
+                            observed_at: None,
+                            event_time_start: None,
+                            event_time_end: None,
+                            history_view: false,
+                            content_origin: None,
+                            activity_type: None,
+                            is_self_generated: false,
+                            evidence_strength: None,
+                            user_verified: false,
+                            user_edited: false,
+                            created_at: row.get(7)?,
+                            updated_at: row.get(8)?,
+                            created_at_ms: row.get::<_, Option<i64>>(9)?.unwrap_or(0),
+                            updated_at_ms: row.get::<_, Option<i64>>(10)?.unwrap_or(0),
+                        })
+                    })
+                    .map_err(|e| crate::storage::StorageError::Sqlite(e))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+
+                    let total: i64 = conn.query_row("SELECT COUNT(*) FROM bake_knowledge", [], |row| row.get(0))
+                        .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+
+                    (entries, total)
+                },
+                "bake_sop" => {
+                    let mut stmt = conn.prepare(
+                        "SELECT b.id, b.episodic_memory_id, b.summary, b.title, b.content, b.entities,
+                         b.importance, b.created_at, b.updated_at, b.created_at_ms, b.updated_at_ms
+                         FROM bake_sops b
+                         ORDER BY b.created_at DESC LIMIT ?1 OFFSET ?2"
+                    ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+
+                    let entries = stmt.query_map(rusqlite::params![params.limit, params.offset], |row: &rusqlite::Row| {
+                        let entities_json: String = row.get(5).unwrap_or_default();
+                        let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
+                        Ok(KnowledgeEntry {
+                            id: row.get(0)?,
+                            capture_id: row.get(1)?,
+                            summary: row.get(2)?,
+                            overview: row.get::<_, Option<String>>(3).ok().flatten(),
+                            details: row.get::<_, Option<String>>(4).ok().flatten(),
+                            entities,
+                            category: "bake_sop".to_string(),
+                            importance: row.get::<_, Option<i64>>(6)?.unwrap_or(3),
+                            occurrence_count: None,
+                            observed_at: None,
+                            event_time_start: None,
+                            event_time_end: None,
+                            history_view: false,
+                            content_origin: None,
+                            activity_type: None,
+                            is_self_generated: false,
+                            evidence_strength: None,
+                            user_verified: false,
+                            user_edited: false,
+                            created_at: row.get(7)?,
+                            updated_at: row.get(8)?,
+                            created_at_ms: row.get::<_, Option<i64>>(9)?.unwrap_or(0),
+                            updated_at_ms: row.get::<_, Option<i64>>(10)?.unwrap_or(0),
+                        })
+                    })
+                    .map_err(|e| crate::storage::StorageError::Sqlite(e))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+
+                    let total: i64 = conn.query_row("SELECT COUNT(*) FROM bake_sops", [], |row| row.get(0))
+                        .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+
+                    (entries, total)
+                },
+                _ => {
+                    // 其他 category 查询 episodic_memories
+                    let mut stmt = conn.prepare(
+                        "SELECT id, capture_id, summary, overview, details, entities, category, importance,
+                         occurrence_count, observed_at, event_time_start, event_time_end,
+                         history_view, content_origin, activity_type, is_self_generated,
+                         evidence_strength, user_verified, user_edited, created_at, updated_at,
+                         created_at_ms, updated_at_ms
+                         FROM episodic_memories WHERE category = ?1
+                           AND summary NOT LIKE ?2
+                         ORDER BY created_at DESC LIMIT ?3 OFFSET ?4"
+                    ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+
+                    let entries = stmt.query_map(rusqlite::params![category, format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX), params.limit, params.offset], |row: &rusqlite::Row| {
+                        let entities_json: String = row.get(5).unwrap_or_default();
+                        let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
+                        Ok(KnowledgeEntry {
+                            id: row.get(0)?, capture_id: row.get(1)?,
+                            summary: row.get(2)?, overview: row.get(3).ok(),
+                            details: row.get(4).ok(), entities,
+                            category: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                            importance: row.get::<_, Option<i64>>(7)?.unwrap_or(3),
+                            occurrence_count: row.get(8).ok(),
+                            observed_at: row.get(9).ok().flatten(),
+                            event_time_start: row.get(10).ok().flatten(),
+                            event_time_end: row.get(11).ok().flatten(),
+                            history_view: row.get::<_, Option<bool>>(12)?.unwrap_or(false),
+                            content_origin: row.get(13).ok().flatten(),
+                            activity_type: row.get(14).ok().flatten(),
+                            is_self_generated: row.get::<_, Option<bool>>(15)?.unwrap_or(false),
+                            evidence_strength: row.get(16).ok().flatten(),
+                            user_verified: row.get::<_, Option<bool>>(17)?.unwrap_or(false),
+                            user_edited: row.get::<_, Option<bool>>(18)?.unwrap_or(false),
+                            created_at: row.get(19)?, updated_at: row.get(20)?,
+                            created_at_ms: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
+                            updated_at_ms: row.get::<_, Option<i64>>(22)?.unwrap_or(0),
+                        })
+                    })
+                    .map_err(|e| crate::storage::StorageError::Sqlite(e))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+
+                    let total: i64 = conn.query_row(
+                        "SELECT COUNT(*) FROM episodic_memories WHERE category = ?1 AND summary NOT LIKE ?2",
+                        rusqlite::params![category, format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX)],
+                        |row| row.get(0),
+                    ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+
+                    (entries, total)
+                }
+            }
         } else {
+            // 没有 category 参数，查询 episodic_memories
             let mut stmt = conn.prepare(
                 "SELECT id, capture_id, summary, overview, details, entities, category, importance,
                  occurrence_count, observed_at, event_time_start, event_time_end,
                  history_view, content_origin, activity_type, is_self_generated,
                  evidence_strength, user_verified, user_edited, created_at, updated_at,
-                 CAST(strftime('%s', created_at) AS INTEGER) * 1000,
-                 CAST(strftime('%s', updated_at) AS INTEGER) * 1000
-                 FROM knowledge_entries
+                 created_at_ms, updated_at_ms
+                 FROM episodic_memories
                  WHERE summary NOT LIKE ?1
                  ORDER BY created_at DESC LIMIT ?2 OFFSET ?3"
             ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
 
-            let entries = stmt
-                .query_map(rusqlite::params![format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX), params.limit, params.offset], |row: &rusqlite::Row| {
-                    let entities_json: String = row.get(5).unwrap_or_default();
-                    let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
-                    Ok(KnowledgeEntry {
-                        id: row.get(0)?, capture_id: row.get(1)?,
-                        summary: row.get(2)?, overview: row.get(3).ok(),
-                        details: row.get(4).ok(), entities,
-                        category: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
-                        importance: row.get::<_, Option<i64>>(7)?.unwrap_or(3),
-                        occurrence_count: row.get(8).ok(),
-                        observed_at: row.get(9).ok().flatten(),
-                        event_time_start: row.get(10).ok().flatten(),
-                        event_time_end: row.get(11).ok().flatten(),
-                        history_view: row.get::<_, Option<bool>>(12)?.unwrap_or(false),
-                        content_origin: row.get(13).ok().flatten(),
-                        activity_type: row.get(14).ok().flatten(),
-                        is_self_generated: row.get::<_, Option<bool>>(15)?.unwrap_or(false),
-                        evidence_strength: row.get(16).ok().flatten(),
-                        user_verified: row.get::<_, Option<bool>>(17)?.unwrap_or(false),
-                        user_edited: row.get::<_, Option<bool>>(18)?.unwrap_or(false),
-                        created_at: row.get(19)?, updated_at: row.get(20)?,
-                        created_at_ms: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
-                        updated_at_ms: row.get::<_, Option<i64>>(22)?.unwrap_or(0),
-                    })
+            let entries = stmt.query_map(rusqlite::params![format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX), params.limit, params.offset], |row: &rusqlite::Row| {
+                let entities_json: String = row.get(5).unwrap_or_default();
+                let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
+                Ok(KnowledgeEntry {
+                    id: row.get(0)?, capture_id: row.get(1)?,
+                    summary: row.get(2)?, overview: row.get(3).ok(),
+                    details: row.get(4).ok(), entities,
+                    category: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                    importance: row.get::<_, Option<i64>>(7)?.unwrap_or(3),
+                    occurrence_count: row.get(8).ok(),
+                    observed_at: row.get(9).ok().flatten(),
+                    event_time_start: row.get(10).ok().flatten(),
+                    event_time_end: row.get(11).ok().flatten(),
+                    history_view: row.get::<_, Option<bool>>(12)?.unwrap_or(false),
+                    content_origin: row.get(13).ok().flatten(),
+                    activity_type: row.get(14).ok().flatten(),
+                    is_self_generated: row.get::<_, Option<bool>>(15)?.unwrap_or(false),
+                    evidence_strength: row.get(16).ok().flatten(),
+                    user_verified: row.get::<_, Option<bool>>(17)?.unwrap_or(false),
+                    user_edited: row.get::<_, Option<bool>>(18)?.unwrap_or(false),
+                    created_at: row.get(19)?, updated_at: row.get(20)?,
+                    created_at_ms: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
+                    updated_at_ms: row.get::<_, Option<i64>>(22)?.unwrap_or(0),
                 })
-                .map_err(|e| crate::storage::StorageError::Sqlite(e))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+            })
+            .map_err(|e| crate::storage::StorageError::Sqlite(e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
 
-            let total: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM knowledge_entries WHERE summary NOT LIKE ?1",
-                    [format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX)],
-                    |row| row.get(0),
-                )
-                .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+            let total: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM episodic_memories WHERE summary NOT LIKE ?1",
+                [format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX)],
+                |row| row.get(0),
+            ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
 
             (entries, total)
         };
@@ -265,10 +400,18 @@ pub async fn verify_knowledge(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
     state.storage.with_conn_async(move |conn| {
-        conn.execute(
-            "UPDATE knowledge_entries SET user_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        // 尝试在各个表中查找并更新
+        let updated = conn.execute(
+            "UPDATE episodic_memories SET user_verified = 1, updated_at = CURRENT_TIMESTAMP, updated_at_ms = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER) WHERE id = ?",
             [id],
         ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+
+        if updated == 0 {
+            // 如果在 episodic_memories 中没找到，尝试 bake 表
+            // 注意：bake 表没有 user_verified 字段，这里可能需要调整逻辑
+            // 暂时返回成功，因为 bake 表的记录不需要验证
+        }
+
         Ok(())
     }).await?;
     Ok(StatusCode::OK)
@@ -280,8 +423,24 @@ pub async fn delete_knowledge(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
     state.storage.with_conn_async(move |conn| {
-        conn.execute("DELETE FROM knowledge_entries WHERE id = ?", [id])
+        // 尝试从各个表中删除
+        let deleted = conn.execute("DELETE FROM episodic_memories WHERE id = ?", [id])
             .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+
+        if deleted == 0 {
+            // 尝试 bake 表
+            let deleted = conn.execute("DELETE FROM bake_articles WHERE id = ?", [id])
+                .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+            if deleted == 0 {
+                let deleted = conn.execute("DELETE FROM bake_knowledge WHERE id = ?", [id])
+                    .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+                if deleted == 0 {
+                    conn.execute("DELETE FROM bake_sops WHERE id = ?", [id])
+                        .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
+                }
+            }
+        }
+
         Ok(())
     }).await?;
     Ok(StatusCode::OK)

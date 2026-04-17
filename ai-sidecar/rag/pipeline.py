@@ -8,6 +8,7 @@ RagPipeline — 完整 RAG 查询流水线
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 import time
 from dataclasses import dataclass, field
@@ -50,6 +51,19 @@ _WEEKLY_REPORT_SYSTEM_PROMPT = (
     "- reading 类（查看/阅读文档）一律不写入周报\n"
     "- 工具报错、系统告警、应用切换等纯系统操作一律省略\n"
     "【输出规范】禁止在输出中出现任何元数据标记（如 importance=、活动=、来源= 等），输出直接可用的正式周报\n"
+    "【证据规范】当上下文存在“量化证据”区块时，所有数字化进展必须引用证据编号；无证据禁止编造数字。"
+)
+
+_PROJECT_WEEKLY_REPORT_SYSTEM_PROMPT = (
+    "你是记忆面包，一个本地运行的 AI 工作助手。"
+    "你的任务是：直接根据下方【项目工作记录上下文】生成项目周报，立即输出，不得提问、不得要求用户补充任何信息。\n"
+    "【强制规则】\n"
+    "- 禁止询问用户任何问题\n"
+    "- 禁止输出'请提供'、'请告诉我'等请求性语句\n"
+    "- 只写可验证结论，不写活动流水\n"
+    "【结构规范】固定输出：本周核心产出、项目进展、本周量化进展（OKR/KPI/专项，如有）、下周计划、风险/阻塞\n"
+    "【证据规范】数字化结论必须可追溯到证据编号（如 K#12/C#34）；无证据不得输出数字。\n"
+    "【输出规范】禁止输出表格、元数据标记、时间戳、应用名、窗口名、来源字段。"
 )
 
 _DAILY_REPORT_SYSTEM_PROMPT = (
@@ -122,8 +136,10 @@ class QueryIntent:
     history_view: bool | None = None
     is_self_generated: bool | None = None
     evidence_strengths: list[str] = field(default_factory=list)
-    # 任务型意图：weekly_report | daily_report | None
+    # 任务型意图：weekly_report | daily_report | project_summary | project_weekly_report | None
     task_type: str | None = None
+    # 是否启用 OKR/KPI/专项量化模式
+    kpi_mode: bool = False
 
 
 class RagPipeline:
@@ -199,6 +215,8 @@ class RagPipeline:
             effective_top_k = max(effective_top_k, 12)
         elif intent.task_type == "project_summary":
             effective_top_k = max(effective_top_k, 24)
+        elif intent.task_type == "project_weekly_report":
+            effective_top_k = max(effective_top_k, 20)
         # 普通 summary 模式（如"总结我本周的工作"）：适度扩大
         elif intent.query_mode == "summary":
             effective_top_k = max(effective_top_k, 20)
@@ -214,7 +232,7 @@ class RagPipeline:
         # 任务型意图：不按关键词过滤，纯按时间段和活动类型宽松召回
         knowledge_entity_terms = None if intent.task_type else (intent.entity_terms or None)
 
-        _is_report_task = intent.task_type in ("weekly_report", "daily_report")
+        _is_report_task = intent.task_type in ("weekly_report", "daily_report", "project_weekly_report")
         knowledge_results = self._knowledge.search(
             user_query if not intent.task_type else "",
             top_k=effective_top_k * 2,
@@ -238,8 +256,8 @@ class RagPipeline:
         ) if self._knowledge else []
 
         # 周报/日报时间兜底：若本周/今天无数据，自动扩大到最近14天
-        if intent.task_type == "weekly_report" and not knowledge_results:
-            logger.info("本周无 knowledge 数据，回退到最近 14 天")
+        if intent.task_type in ("weekly_report", "project_weekly_report") and not knowledge_results:
+            logger.info("周报任务无 knowledge 数据，回退到最近 14 天")
             fallback_start = int(time.time() * 1000) - 14 * 24 * 60 * 60 * 1000
             knowledge_results = self._knowledge.search(
                 "",
@@ -296,7 +314,7 @@ class RagPipeline:
         )
         selected_contexts = self._select_contexts(merged, effective_top_k, query_mode=intent.query_mode)
 
-        is_report = intent.task_type in ("weekly_report", "daily_report", "project_summary")
+        is_report = intent.task_type in ("weekly_report", "daily_report", "project_summary", "project_weekly_report")
         # 报告模式：提前读取身份，用于上下文主语去除
         user_identity = self._read_user_identity()
         user_names = [n.strip() for n in user_identity.split(",") if n.strip()] if user_identity else []
@@ -311,21 +329,45 @@ class RagPipeline:
                     enriched_details = _strip_user_subject(enriched_details, user_names=user_names)
                 context_text += "\n\n【核心知识详情（请重点参考）】\n" + enriched_details
 
+        quant_evidence_block = ""
+        if intent.task_type in ("weekly_report", "project_weekly_report") and selected_contexts:
+            quant_evidence_block = self._build_quant_evidence_block(
+                selected_contexts,
+                kpi_mode=intent.kpi_mode,
+                top_n=10 if intent.kpi_mode else 6,
+            )
+
         # 任务型意图：若无任何上下文，直接返回提示，不走 LLM（避免 LLM 自由发挥）
         if intent.task_type and not selected_contexts:
-            type_name = {"weekly_report": "本周", "daily_report": "今天", "project_summary": "项目"}.get(intent.task_type, "")
+            type_name = {
+                "weekly_report": "本周",
+                "daily_report": "今天",
+                "project_summary": "项目",
+                "project_weekly_report": "本周项目",
+            }.get(intent.task_type, "")
             return RagResult(
                 answer=f"暂未找到{type_name}的工作记录，无法生成报告。请确认记忆面包已正常捕获屏幕内容。",
                 contexts=[],
                 model="no-context",
             )
 
+        quant_evidence_section = f"\n\n{quant_evidence_block}\n" if quant_evidence_block else ""
+
         # 任务型意图：prompt 中明确标注「以下是真实工作记录」，强制 LLM 基于数据输出
         if intent.task_type == "weekly_report":
+            kpi_section_rule = (
+                "11. 若涉及 OKR/KPI/专项进展，必须新增“## 本周量化进展（OKR/KPI/专项）”章节；"
+                "每条使用「- 指标结论（证据：K#xx/C#yy）」格式。\n"
+                "12. 量化结论必须来自“量化证据”区块；无证据不得输出任何数字。\n"
+                if intent.kpi_mode else
+                "11. 若上下文提供“量化证据”区块，优先引用其数字；无证据不得编造数字。\n"
+            )
             prompt = (
                 "【输出规则】\n"
                 "1. 严格按以下 Markdown 结构输出；有数据的章节必须输出章节标题，没有数据的章节直接跳过（含标题），不写'无相关内容'等占位文字。\n"
-                "2. 固定章节顺序：## 本周核心产出 → ## 项目进展 → ## 下周计划 → ## 风险/阻塞。\n"
+                "2. 固定章节顺序：## 本周核心产出 → ## 项目进展"
+                + (" → ## 本周量化进展（OKR/KPI/专项）" if intent.kpi_mode else "")
+                + " → ## 下周计划 → ## 风险/阻塞。\n"
                 "3. 【本周核心产出】下每条使用「- **短标题**：详细描述」格式；短标题是5个字以内的动宾短语，禁止输出“短标题”“详细描述”等占位词。\n"
                 "4. 【本周核心产出】每条描述至少2句，只写结果、价值、影响；不要输出“（结果）”“（价值）”这类括号标签。\n"
                 "5. 【项目进展】下每条使用「- **项目名**：已完成 / 进行中 / 待启动 — 进展说明」格式，禁止输出“项目名”占位词，禁止只输出状态集合或散列短句。\n"
@@ -333,8 +375,32 @@ class RagPipeline:
                 "7. 【风险/阻塞】下每条使用「- 风险点：影响范围 / 受阻原因」格式；没有真实风险则整节跳过，不要输出“风险点”占位词。\n"
                 "8. 只使用工作记录中 activity_type=coding、meeting、chat 的内容；reading 类内容不得写入。\n"
                 "9. 禁止输出表格、元数据标记、时间戳、应用名、窗口名、来源字段。\n"
-                "10. 输出完周报正文后立即结束，禁止附带原始工作记录、禁止重复粘贴上下文。\n\n"
-                f"以下是本周真实工作记录（共 {len(selected_contexts)} 条）：\n\n{context_text}\n\n"
+                "10. 输出完周报正文后立即结束，禁止附带原始工作记录、禁止重复粘贴上下文。\n"
+                + kpi_section_rule + "\n"
+                f"以下是本周真实工作记录（共 {len(selected_contexts)} 条）：\n\n{context_text}"
+                f"{quant_evidence_section}\n"
+                "---\n"
+                f"用户指令：{user_query}\n"
+            )
+        elif intent.task_type == "project_weekly_report":
+            kpi_section_rule = (
+                "6. 必须输出“## 本周量化进展（OKR/KPI/专项）”章节；每条量化结论都必须带证据编号（证据：K#xx/C#yy）。\n"
+                "7. 未在证据区块出现的数字禁止输出，无法验证时改为定性描述。\n"
+                if intent.kpi_mode else
+                "6. 若上下文提供量化证据，优先输出可验证数字并附证据编号（证据：K#xx/C#yy）；无证据不要编造数字。\n"
+            )
+            prompt = (
+                "【输出规则】\n"
+                "1. 固定章节顺序：## 本周核心产出 → ## 项目进展"
+                + (" → ## 本周量化进展（OKR/KPI/专项）" if intent.kpi_mode else "")
+                + " → ## 下周计划 → ## 风险/阻塞。\n"
+                "2. 【本周核心产出】每条写清“做了什么结果 + 业务价值/影响”，优先写可验证数字。\n"
+                "3. 【项目进展】按「- **项目/专项**：已完成 / 进行中 / 待启动 — 关键里程碑」格式输出。\n"
+                "4. 【下周计划】仅写可验收交付项，不写空泛动作词。\n"
+                "5. 【风险/阻塞】写明影响范围与依赖。\n"
+                + kpi_section_rule + "\n"
+                f"以下是本周项目真实工作记录（共 {len(selected_contexts)} 条）：\n\n{context_text}"
+                f"{quant_evidence_section}\n"
                 "---\n"
                 f"用户指令：{user_query}\n"
             )
@@ -371,6 +437,8 @@ class RagPipeline:
         identity_clause = self._build_identity_clause(user_identity)
         if intent.task_type == "weekly_report":
             system = _WEEKLY_REPORT_SYSTEM_PROMPT + identity_clause
+        elif intent.task_type == "project_weekly_report":
+            system = _PROJECT_WEEKLY_REPORT_SYSTEM_PROMPT + identity_clause
         elif intent.task_type == "daily_report":
             system = _DAILY_REPORT_SYSTEM_PROMPT + identity_clause
         elif intent.task_type == "project_summary":
@@ -452,7 +520,7 @@ class RagPipeline:
                 if not knowledge_id:
                     continue
                 row = conn.execute(
-                    "SELECT overview, details FROM knowledge_entries WHERE id = ?",
+                    "SELECT overview, details FROM episodic_memories WHERE id = ?",
                     (knowledge_id,),
                 ).fetchone()
                 if not row:
@@ -465,6 +533,214 @@ class RagPipeline:
         except Exception as exc:
             logger.warning("补充 knowledge details 失败: %s", exc)
         return "\n".join(parts)
+
+    def _build_quant_evidence_block(
+        self,
+        chunks: list[RetrievedChunk],
+        kpi_mode: bool = False,
+        top_n: int = 6,
+    ) -> str:
+        """从候选知识中提炼可验证的量化事实，供周报类提示词强约束引用。"""
+        if not chunks:
+            return ""
+
+        details_map = self._load_knowledge_details(chunks)
+        candidates: list[tuple[str, str, float]] = []
+
+        for chunk in chunks:
+            metadata = chunk.metadata or {}
+            knowledge_id = metadata.get("knowledge_id")
+            text_parts = [(chunk.text or "").strip()]
+            if knowledge_id is not None:
+                try:
+                    kid = int(knowledge_id)
+                    detail_text = details_map.get(kid)
+                    if detail_text:
+                        text_parts.append(detail_text)
+                except Exception:
+                    pass
+
+            fact_lines = self._extract_quant_fact_lines("\n".join(text_parts), kpi_mode=kpi_mode)
+            if not fact_lines:
+                continue
+
+            evidence_ref = self._format_evidence_ref(metadata, chunk.capture_id)
+            evidence_score = self._score_evidence(metadata)
+            for fact in fact_lines:
+                candidates.append((fact, evidence_ref, evidence_score))
+
+        if not candidates:
+            return ""
+
+        dedup: dict[str, tuple[str, str, float]] = {}
+        for fact, ref, score in candidates:
+            key = self._normalize_fact_key(fact)
+            prev = dedup.get(key)
+            if prev is None or score > prev[2]:
+                dedup[key] = (fact, ref, score)
+
+        ranked = sorted(dedup.values(), key=lambda item: (-item[2], len(item[0])))
+        picked = ranked[: max(1, top_n)]
+
+        lines = ["【量化证据】（仅可引用以下证据中的数字结论）"]
+        for idx, (fact, ref, _) in enumerate(picked, 1):
+            lines.append(f"- [{idx}] {fact}（证据：{ref}）")
+        return "\n".join(lines)
+
+    def _load_knowledge_details(self, chunks: list[RetrievedChunk]) -> dict[int, str]:
+        """按 knowledge_id 批量加载详情文本，避免逐条查询。"""
+        if not self._db_path:
+            return {}
+
+        knowledge_ids: list[int] = []
+        seen: set[int] = set()
+        for chunk in chunks:
+            knowledge_id = (chunk.metadata or {}).get("knowledge_id")
+            if knowledge_id is None:
+                continue
+            try:
+                kid = int(knowledge_id)
+            except Exception:
+                continue
+            if kid in seen:
+                continue
+            seen.add(kid)
+            knowledge_ids.append(kid)
+
+        if not knowledge_ids:
+            return {}
+
+        placeholders = ",".join("?" for _ in knowledge_ids)
+        details_map: dict[int, str] = {}
+        try:
+            conn = sqlite3.connect(self._db_path)
+            rows = conn.execute(
+                f"SELECT id, details FROM episodic_memories WHERE id IN ({placeholders})",
+                knowledge_ids,
+            ).fetchall()
+            conn.close()
+            for row in rows:
+                try:
+                    kid = int(row[0])
+                except Exception:
+                    continue
+                details = (row[1] or "").strip()
+                if details:
+                    details_map[kid] = details[:1200]
+        except Exception as exc:
+            logger.warning("批量读取 knowledge details 失败: %s", exc)
+
+        return details_map
+
+    @staticmethod
+    def _extract_quant_fact_lines(text: str, kpi_mode: bool = False) -> list[str]:
+        if not text:
+            return []
+
+        progress_keywords = (
+            "完成", "达成", "推进", "上线", "交付", "修复", "关闭", "处理", "新增", "减少", "降低", "提升", "优化",
+            "通过率", "成功率", "失败率", "耗时", "时延", "里程碑", "okr", "kpi", "专项", "progress", "improve", "fixed", "delivered",
+        )
+        number_pattern = re.compile(
+            r"(\d+(?:\.\d+)?\s*%|\d+\s*/\s*\d+|\d+(?:\.\d+)?\s*(?:个|项|次|处|条|页|分钟|小时|天|周|月|年|ms|s|秒|模块|接口|问题|bug|任务|需求|pr|PR|commit|人天|台|条告警))"
+        )
+
+        candidates: list[str] = []
+        segments = re.split(r"[\n。；;！？!?]+", text)
+        for seg in segments:
+            line = " ".join(seg.strip().split())
+            if len(line) < 6:
+                continue
+            if not number_pattern.search(line):
+                continue
+
+            lowered = line.lower()
+            if not any((kw in line) or (kw in lowered) for kw in progress_keywords):
+                continue
+            if RagPipeline._looks_like_noise_numeric_line(line):
+                continue
+            if kpi_mode and not any(token in lowered for token in ("okr", "kpi", "专项", "达成", "完成", "提升", "降低", "上线", "交付", "通过率")):
+                # KPI 模式更严格，尽量保留“进展结论”而非普通数字描述
+                continue
+
+            candidates.append(line[:120])
+
+        return candidates[:8]
+
+    @staticmethod
+    def _looks_like_noise_numeric_line(line: str) -> bool:
+        if re.fullmatch(r"[\d\s\-/:年月日.]+", line):
+            return True
+
+        has_progress_word = any(
+            token in line for token in ("完成", "达成", "提升", "下降", "减少", "增加", "修复", "关闭", "交付", "上线", "通过率", "耗时")
+        )
+        if re.search(r"\b20\d{2}[-/年]\d{1,2}(?:[-/月]\d{1,2})?", line) and not has_progress_word:
+            return True
+        if re.search(r"\bv?\d+\.\d+\.\d+\b", line) and not has_progress_word:
+            return True
+
+        return False
+
+    @staticmethod
+    def _normalize_fact_key(fact: str) -> str:
+        normalized = fact.lower()
+        normalized = re.sub(r"\s+", "", normalized)
+        normalized = re.sub(r"[，,。；;：:（）()\[\]【】'\"]", "", normalized)
+        return normalized
+
+    @staticmethod
+    def _format_evidence_ref(metadata: dict, capture_id: int) -> str:
+        knowledge_id = metadata.get("knowledge_id")
+        capture = metadata.get("capture_id") or capture_id
+
+        knowledge_ref = None
+        capture_ref = None
+        try:
+            if knowledge_id is not None:
+                knowledge_ref = f"K#{int(knowledge_id)}"
+        except Exception:
+            knowledge_ref = None
+
+        try:
+            if capture is not None:
+                capture_ref = f"C#{int(capture)}"
+        except Exception:
+            capture_ref = None
+
+        if knowledge_ref and capture_ref:
+            return f"{knowledge_ref}/{capture_ref}"
+        if knowledge_ref:
+            return knowledge_ref
+        if capture_ref:
+            return capture_ref
+
+        doc_key = str(metadata.get("doc_key") or "").strip()
+        return f"DOC#{doc_key}" if doc_key else "未知证据"
+
+    @staticmethod
+    def _score_evidence(metadata: dict) -> float:
+        evidence_strength = str(metadata.get("evidence_strength") or "").lower()
+        strength_score = {"high": 1.6, "medium": 1.0, "low": 0.2}.get(evidence_strength, 0.5)
+
+        try:
+            importance = float(metadata.get("importance") or 3)
+        except Exception:
+            importance = 3.0
+        importance_score = max(0.0, min(importance, 5.0)) * 0.25
+
+        user_verified_score = 2.0 if metadata.get("user_verified") else 0.0
+
+        ts_value = metadata.get("observed_at") or metadata.get("time") or metadata.get("end_time") or metadata.get("start_time")
+        recency_score = 0.0
+        try:
+            ts_int = int(ts_value)
+            age_days = (int(time.time() * 1000) - ts_int) / (24 * 60 * 60 * 1000)
+            recency_score = max(0.0, 1.2 - age_days / 14)
+        except Exception:
+            recency_score = 0.0
+
+        return user_verified_score + strength_score + importance_score + recency_score
 
     @staticmethod
     def _build_context(chunks: list[RetrievedChunk], strip_user_subject: bool = False, user_names: list[str] | None = None) -> str:
@@ -565,18 +841,28 @@ class RagPipeline:
         task_type: str | None = None
 
         # ── 任务型意图检测（优先级最高）──────────────────────────────────
+        _PROJECT_WEEKLY_REPORT_TOKENS = (
+            "项目周报", "本周项目周报", "项目进展周报", "本周项目进展", "project weekly", "project weekly report"
+        )
         _WEEKLY_REPORT_TOKENS  = ("周报", "工作周报", "weekly report")
         _DAILY_REPORT_TOKENS   = ("日报", "工作日报", "今日工作总结", "今天工作总结", "daily report", "工作日记", "今日日记")
         _PROJECT_SUMMARY_TOKENS = ("项目总结", "项目报告", "项目复盘", "项目回顾", "project summary", "项目里程碑", "milestone")
         _WRITE_TASK_TOKENS     = ("帮我写", "帮我生成", "帮我整理", "生成一份", "写一份", "整理一份", "写下", "生成下", "帮忙写", "帮我做", "生成")
 
-        _is_weekly_report   = any(t in user_query for t in _WEEKLY_REPORT_TOKENS)
-        _is_daily_report    = any(t in user_query for t in _DAILY_REPORT_TOKENS)
-        _is_project_summary = any(t in user_query for t in _PROJECT_SUMMARY_TOKENS)
-        _is_write_intent    = any(t in user_query for t in _WRITE_TASK_TOKENS)
+        _is_project_weekly_report = any(t in lowered for t in _PROJECT_WEEKLY_REPORT_TOKENS)
+        _is_weekly_report   = any(t in lowered for t in _WEEKLY_REPORT_TOKENS)
+        _is_daily_report    = any(t in lowered for t in _DAILY_REPORT_TOKENS)
+        _is_project_summary = any(t in lowered for t in _PROJECT_SUMMARY_TOKENS)
+        _is_write_intent    = any(t in lowered for t in _WRITE_TASK_TOKENS)
+
+        kpi_mode = any(token in lowered for token in (
+            "okr", "kpi", "专项", "关键结果", "指标", "里程碑", "达成率", "完成率"
+        ))
 
         # 报告类意图：只要含报告关键词即触发，无需额外的"帮我写"前缀
-        if _is_project_summary:
+        if _is_project_weekly_report:
+            task_type = "project_weekly_report"
+        elif _is_project_summary:
             task_type = "project_summary"
         elif _is_weekly_report:
             task_type = "weekly_report"
@@ -610,7 +896,7 @@ class RagPipeline:
             start_ts = _week_start_ms()
             observed_start_ts = start_ts
             observed_end_ts = end_ts
-        elif task_type == "weekly_report":
+        elif task_type in ("weekly_report", "project_weekly_report"):
             # 周报默认取本周
             start_ts = _week_start_ms()
             observed_start_ts = start_ts
@@ -653,7 +939,7 @@ class RagPipeline:
         query_mode = "lookup"
 
         # ── 任务型意图：统一设置检索参数 ─────────────────────────────────
-        if task_type in ("weekly_report", "daily_report"):
+        if task_type in ("weekly_report", "daily_report", "project_weekly_report"):
             target_time_semantics = "observed"
             history_view = False
             activity_types = ["coding", "reading", "meeting", "chat", "ask_ai"]
@@ -720,6 +1006,7 @@ class RagPipeline:
             is_self_generated=is_self_generated,
             evidence_strengths=evidence_strengths,
             task_type=task_type,
+            kpi_mode=kpi_mode,
         )
 
 

@@ -630,7 +630,7 @@ class KnowledgeExtractorV2:
 
             # 2. 获取所有现有知识条目（仅取最近 500 条，提高相关性）
             cursor = db_conn.execute(
-                "SELECT id, overview, entities, start_time, end_time FROM knowledge_entries WHERE overview IS NOT NULL ORDER BY created_at DESC LIMIT 500"
+                "SELECT id, overview, entities, start_time, end_time FROM episodic_memories WHERE overview IS NOT NULL ORDER BY created_at DESC LIMIT 500"
             )
             existing_entries = cursor.fetchall()
 
@@ -1135,7 +1135,7 @@ class KnowledgeExtractorV2:
                 if similar_id:
                     # 合并知识：更新明细内容，追加新的细节
                     cursor = db_conn.execute(
-                        "SELECT details FROM knowledge_entries WHERE id = ?",
+                        "SELECT details FROM episodic_memories WHERE id = ?",
                         (similar_id,)
                     )
                     existing_details = cursor.fetchone()[0] or ""
@@ -1147,7 +1147,7 @@ class KnowledgeExtractorV2:
 
                     # 更新现有记录
                     db_conn.execute(
-                        """UPDATE knowledge_entries
+                        """UPDATE episodic_memories
                            SET occurrence_count = occurrence_count + 1,
                                details = ?,
                                updated_at = CURRENT_TIMESTAMP
@@ -1262,11 +1262,13 @@ class KnowledgeExtractorV2:
                 caller_id=f"merge:{capture_ids_str}",
             ) as tracker:
                 _sys_prompt = self._build_merge_system_prompt()
+                # 强化 JSON 输出约束：在 user prompt 中再次强调
+                enhanced_user_prompt = f"{user_prompt}\n\n**重要**：你必须且只能输出一个有效的 JSON 对象，不要输出任何其他内容、解释或 markdown 代码块。"
                 response = self.client.chat(
                     model=self.model,
                     messages=[
                         {"role": "system", "content": _sys_prompt},
-                        {"role": "user", "content": user_prompt},
+                        {"role": "user", "content": enhanced_user_prompt},
                     ],
                     format="json",
                     options={"temperature": 0.3, "num_predict": 1024},
@@ -1275,14 +1277,18 @@ class KnowledgeExtractorV2:
                 tracker.set_response(response)
                 if tracker._prompt_tokens == 0:
                     tracker.set_tokens(
-                        prompt=estimate_tokens(_sys_prompt + user_prompt),
+                        prompt=estimate_tokens(_sys_prompt + enhanced_user_prompt),
                         completion=estimate_tokens(content),
                     )
 
             # 3. 解析结果
             result = _extract_json_object(content)
             if result is None:
-                logger.warning("合并提炼返回非预期 JSON，使用兜底 knowledge: content=%s", content[:500])
+                logger.error(
+                    "合并提炼 JSON 解析失败: No valid JSON object found: line 1 column 1 (char 0), "
+                    "响应内容: %s",
+                    content[:2000] if content else "(empty)"
+                )
                 return _build_fallback_knowledge(captures, reason='invalid_json')
 
             overview = result.get('overview', '')

@@ -90,7 +90,11 @@ impl NewBakeTemplate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NewKnowledgeEntry {
+// ─────────────────────────────────────────────────────────────────────────────
+// episodic_memories 表 - 情节记忆
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub struct NewEpisodicMemory {
     pub capture_id: i64,
     pub summary: String,
     pub overview: Option<String>,
@@ -110,7 +114,7 @@ pub struct NewKnowledgeEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KnowledgeEntryRecord {
+pub struct EpisodicMemoryRecord {
     pub id: i64,
     pub capture_id: i64,
     pub summary: String,
@@ -136,9 +140,103 @@ pub struct KnowledgeEntryRecord {
     pub updated_at_ms: i64,
 }
 
+// 向后兼容的类型别名
+pub type NewKnowledgeEntry = NewEpisodicMemory;
+pub type KnowledgeEntryRecord = EpisodicMemoryRecord;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// bake_articles 表 - 提炼后的文章
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub struct NewBakeArticle {
+    pub episodic_memory_id: i64,
+    pub title: String,
+    pub summary: String,
+    pub content: Option<String>,
+    pub entities: String,
+    pub importance: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BakeArticleRecord {
+    pub id: i64,
+    pub episodic_memory_id: i64,
+    pub title: String,
+    pub summary: String,
+    pub content: Option<String>,
+    pub entities: String,
+    pub importance: i64,
+    pub user_verified: bool,
+    pub user_edited: bool,
+    pub created_at: String,
+    pub updated_at: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// bake_knowledge 表 - 提炼后的知识
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub struct NewBakeKnowledge {
+    pub episodic_memory_id: i64,
+    pub title: String,
+    pub summary: String,
+    pub content: Option<String>,
+    pub entities: String,
+    pub importance: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BakeKnowledgeRecord {
+    pub id: i64,
+    pub episodic_memory_id: i64,
+    pub title: String,
+    pub summary: String,
+    pub content: Option<String>,
+    pub entities: String,
+    pub importance: i64,
+    pub user_verified: bool,
+    pub user_edited: bool,
+    pub created_at: String,
+    pub updated_at: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// bake_sops 表 - 提炼后的操作手册
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub struct NewBakeSop {
+    pub episodic_memory_id: i64,
+    pub title: String,
+    pub summary: String,
+    pub content: Option<String>,
+    pub entities: String,
+    pub importance: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BakeSopRecord {
+    pub id: i64,
+    pub episodic_memory_id: i64,
+    pub title: String,
+    pub summary: String,
+    pub content: Option<String>,
+    pub entities: String,
+    pub importance: i64,
+    pub user_verified: bool,
+    pub user_edited: bool,
+    pub created_at: String,
+    pub updated_at: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BakeMemorySourceRecord {
-    pub knowledge: KnowledgeEntryRecord,
+    pub knowledge: EpisodicMemoryRecord,
     pub capture_ts: i64,
     pub capture_app_name: Option<String>,
     pub capture_win_title: Option<String>,

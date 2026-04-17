@@ -10,6 +10,7 @@
 
 import json
 import logging
+import re
 import sqlite3
 import time
 from datetime import datetime
@@ -60,6 +61,20 @@ BUILTIN_TEMPLATES = [
             "3. 【效率亮点与问题】各一条，基于事实而非感受。\n"
             "4. 【下月目标】具体、可验收的目标，不写方向性描述。\n"
             "过滤掉：活动流水、工具配置、无结论的探索等低价值记录。"
+        ),
+    },
+    {
+        "id": "project_weekly_report",
+        "name": "生成项目周报",
+        "cron": "0 18 * * 5",
+        "category": "工作总结",
+        "user_instruction": (
+            "请根据本周项目相关工作记录，生成项目周报。要求：\n"
+            "1. 【本周核心产出】按项目/专项列出完成结果与业务价值，优先写可验证数字。\n"
+            "2. 【项目进展】按「已完成 / 进行中 / 待启动」标注状态，并说明关键里程碑。\n"
+            "3. 若涉及 OKR/KPI/专项，必须提取并呈现可验证的量化进展。\n"
+            "4. 【下周计划】仅写可验收交付项。\n"
+            "5. 【风险/阻塞】写明影响范围与依赖。"
         ),
     },
     # ── 学习成长类 ──────────────────────────────────────────────────────────
@@ -208,15 +223,22 @@ class TaskExecutor:
             # 3. 查询 knowledge 上下文
             knowledge_list = self._query_knowledge(conn, task['user_instruction'])
             knowledge_count = len(knowledge_list)
+            is_weekly_report = self._is_weekly_report_instruction(task['user_instruction'])
+            kpi_mode = is_weekly_report and self._is_kpi_mode_instruction(task['user_instruction'])
 
             # 4. 构建上下文（根据 token 预算决定压缩策略）
-            context_text, token_estimate = self._build_context(knowledge_list)
+            context_text, token_estimate = self._build_context(
+                knowledge_list,
+                user_instruction=task['user_instruction'],
+            )
 
             # 5. 调用 LLM 生成报告
             result_text = self._llm_generate(
                 user_instruction=task['user_instruction'],
                 context=context_text,
                 task_id=task_id,
+                is_weekly_report=is_weekly_report,
+                kpi_mode=kpi_mode,
             )
 
             # 6. 更新执行记录为成功
@@ -263,10 +285,13 @@ class TaskExecutor:
         """
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, overview, details, category, importance,
+            SELECT id, capture_id, overview, details, category, importance,
                    start_time, end_time, duration_minutes,
-                   frag_app_name, entities
-            FROM knowledge_entries
+                   frag_app_name, entities,
+                   user_verified, observed_at, event_time_start, event_time_end,
+                   history_view, content_origin, activity_type, is_self_generated,
+                   evidence_strength, created_at
+            FROM episodic_memories
             WHERE importance >= 2
               AND (start_time IS NULL OR start_time >= ?)
             ORDER BY COALESCE(start_time, created_at) DESC
@@ -277,20 +302,35 @@ class TaskExecutor:
         return [
             {
                 "id": r[0],
-                "overview": r[1] or "",
-                "details": r[2] or "",
-                "category": r[3] or "其他",
-                "importance": r[4] or 3,
-                "start_time": r[5],
-                "end_time": r[6],
-                "duration_minutes": r[7],
-                "app_name": r[8],
-                "entities": json.loads(r[9]) if r[9] else [],
+                "capture_id": r[1],
+                "overview": r[2] or "",
+                "details": r[3] or "",
+                "category": r[4] or "其他",
+                "importance": r[5] or 3,
+                "start_time": r[6],
+                "end_time": r[7],
+                "duration_minutes": r[8],
+                "app_name": r[9],
+                "entities": json.loads(r[10]) if r[10] else [],
+                "user_verified": bool(r[11]) if r[11] is not None else False,
+                "observed_at": r[12],
+                "event_time_start": r[13],
+                "event_time_end": r[14],
+                "history_view": bool(r[15]) if r[15] is not None else False,
+                "content_origin": r[16],
+                "activity_type": r[17],
+                "is_self_generated": bool(r[18]) if r[18] is not None else False,
+                "evidence_strength": r[19],
+                "created_at": r[20],
             }
             for r in rows
         ]
 
-    def _build_context(self, knowledge_list: list[dict]) -> tuple[str, int]:
+    def _build_context(
+        self,
+        knowledge_list: list[dict],
+        user_instruction: str = "",
+    ) -> tuple[str, int]:
         """
         根据 token 预算构建上下文文本。
 
@@ -300,6 +340,8 @@ class TaskExecutor:
         - 超出：按重要性截断到 OVERVIEW_ONLY_TOKEN_LIMIT
         """
         estimated_tokens = len(knowledge_list) * AVG_TOKENS_PER_KNOWLEDGE
+        is_weekly_report = self._is_weekly_report_instruction(user_instruction)
+        kpi_mode = is_weekly_report and self._is_kpi_mode_instruction(user_instruction)
 
         if estimated_tokens <= FULL_CONTEXT_TOKEN_LIMIT:
             # 全量：overview + details
@@ -340,11 +382,211 @@ class TaskExecutor:
             estimated_tokens = len(truncated) * 80
             logger.info(f"上下文策略：截断，{len(truncated)}/{len(knowledge_list)} 条，预估 {estimated_tokens} tokens")
 
+        if is_weekly_report and knowledge_list:
+            quant_block = self._build_quant_evidence_block(
+                knowledge_list,
+                kpi_mode=kpi_mode,
+                top_n=10 if kpi_mode else 6,
+            )
+            if quant_block:
+                context = f"{context}\n\n{quant_block}" if context else quant_block
+                estimated_tokens += max(40, len(quant_block) // 4)
+
         return context, estimated_tokens
 
-    def _llm_generate(self, user_instruction: str, context: str, task_id: int = None) -> str:
+
+    @staticmethod
+    def _is_weekly_report_instruction(user_instruction: str) -> bool:
+        lowered = (user_instruction or "").lower()
+        return any(token in lowered for token in (
+            "周报",
+            "weekly report",
+            "weekly",
+        ))
+
+    @staticmethod
+    def _is_kpi_mode_instruction(user_instruction: str) -> bool:
+        lowered = (user_instruction or "").lower()
+        return any(token in lowered for token in (
+            "okr",
+            "kpi",
+            "专项",
+            "关键结果",
+            "指标",
+            "里程碑",
+            "达成率",
+            "完成率",
+        ))
+
+    def _build_quant_evidence_block(
+        self,
+        knowledge_list: list[dict],
+        kpi_mode: bool = False,
+        top_n: int = 6,
+    ) -> str:
+        if not knowledge_list:
+            return ""
+
+        candidates: list[tuple[str, str, float]] = []
+        for item in knowledge_list:
+            text_parts = [item.get("overview") or ""]
+            if item.get("details"):
+                text_parts.append(item["details"])
+            fact_lines = self._extract_quant_fact_lines("\n".join(text_parts), kpi_mode=kpi_mode)
+            if not fact_lines:
+                continue
+
+            evidence_ref = self._format_evidence_ref(item)
+            evidence_score = self._score_evidence(item)
+            for fact in fact_lines:
+                candidates.append((fact, evidence_ref, evidence_score))
+
+        if not candidates:
+            return ""
+
+        dedup: dict[str, tuple[str, str, float]] = {}
+        for fact, ref, score in candidates:
+            key = self._normalize_fact_key(fact)
+            prev = dedup.get(key)
+            if prev is None or score > prev[2]:
+                dedup[key] = (fact, ref, score)
+
+        ranked = sorted(dedup.values(), key=lambda item: (-item[2], len(item[0])))
+        picked = ranked[: max(1, top_n)]
+
+        lines = ["【量化证据】（仅可引用以下证据中的数字结论）"]
+        for idx, (fact, ref, _) in enumerate(picked, 1):
+            lines.append(f"- [{idx}] {fact}（证据：{ref}）")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _extract_quant_fact_lines(text: str, kpi_mode: bool = False) -> list[str]:
+        if not text:
+            return []
+
+        progress_keywords = (
+            "完成", "达成", "推进", "上线", "交付", "修复", "关闭", "处理", "新增", "减少", "降低", "提升", "优化",
+            "通过率", "成功率", "失败率", "耗时", "时延", "里程碑", "okr", "kpi", "专项", "progress", "improve", "fixed", "delivered",
+        )
+        number_pattern = re.compile(
+            r"(\d+(?:\.\d+)?\s*%|\d+\s*/\s*\d+|\d+(?:\.\d+)?\s*(?:个|项|次|处|条|页|分钟|小时|天|周|月|年|ms|s|秒|模块|接口|问题|bug|任务|需求|pr|PR|commit|人天|台|条告警))"
+        )
+
+        candidates: list[str] = []
+        segments = re.split(r"[\n。；;！？!?]+", text)
+        for seg in segments:
+            line = " ".join(seg.strip().split())
+            if len(line) < 6:
+                continue
+            if not number_pattern.search(line):
+                continue
+
+            lowered = line.lower()
+            if not any((kw in line) or (kw in lowered) for kw in progress_keywords):
+                continue
+            if TaskExecutor._looks_like_noise_numeric_line(line):
+                continue
+            if kpi_mode and not any(token in lowered for token in ("okr", "kpi", "专项", "达成", "完成", "提升", "降低", "上线", "交付", "通过率")):
+                continue
+
+            candidates.append(line[:120])
+
+        return candidates[:8]
+
+    @staticmethod
+    def _looks_like_noise_numeric_line(line: str) -> bool:
+        if re.fullmatch(r"[\d\s\-/:年月日.]+", line):
+            return True
+
+        has_progress_word = any(
+            token in line for token in ("完成", "达成", "提升", "下降", "减少", "增加", "修复", "关闭", "交付", "上线", "通过率", "耗时")
+        )
+        if re.search(r"\b20\d{2}[-/年]\d{1,2}(?:[-/月]\d{1,2})?", line) and not has_progress_word:
+            return True
+        if re.search(r"\bv?\d+\.\d+\.\d+\b", line) and not has_progress_word:
+            return True
+
+        return False
+
+    @staticmethod
+    def _normalize_fact_key(fact: str) -> str:
+        normalized = fact.lower()
+        normalized = re.sub(r"\s+", "", normalized)
+        normalized = re.sub(r"[，,。；;：:（）()\[\]【】'\"]", "", normalized)
+        return normalized
+
+    @staticmethod
+    def _format_evidence_ref(item: dict) -> str:
+        knowledge_ref = None
+        capture_ref = None
+
+        try:
+            if item.get("id") is not None:
+                knowledge_ref = f"K#{int(item['id'])}"
+        except Exception:
+            knowledge_ref = None
+
+        try:
+            if item.get("capture_id") is not None:
+                capture_ref = f"C#{int(item['capture_id'])}"
+        except Exception:
+            capture_ref = None
+
+        if knowledge_ref and capture_ref:
+            return f"{knowledge_ref}/{capture_ref}"
+        if knowledge_ref:
+            return knowledge_ref
+        if capture_ref:
+            return capture_ref
+        return "未知证据"
+
+    @staticmethod
+    def _score_evidence(item: dict) -> float:
+        evidence_strength = str(item.get("evidence_strength") or "").lower()
+        strength_score = {"high": 1.6, "medium": 1.0, "low": 0.2}.get(evidence_strength, 0.5)
+
+        try:
+            importance = float(item.get("importance") or 3)
+        except Exception:
+            importance = 3.0
+        importance_score = max(0.0, min(importance, 5.0)) * 0.25
+
+        user_verified_score = 2.0 if item.get("user_verified") else 0.0
+
+        ts_value = item.get("observed_at") or item.get("event_time_end") or item.get("end_time") or item.get("start_time")
+        recency_score = 0.0
+        try:
+            ts_int = int(ts_value)
+            age_days = (int(time.time() * 1000) - ts_int) / (24 * 60 * 60 * 1000)
+            recency_score = max(0.0, 1.2 - age_days / 14)
+        except Exception:
+            recency_score = 0.0
+
+        return user_verified_score + strength_score + importance_score + recency_score
+
+    def _llm_generate(
+        self,
+        user_instruction: str,
+        context: str,
+        task_id: int = None,
+        is_weekly_report: bool = False,
+        kpi_mode: bool = False,
+    ) -> str:
         """调用 LLM 生成报告"""
         from monitor.llm_tracker import LLMCallTracker, estimate_tokens
+
+        weekly_rules = ""
+        if is_weekly_report:
+            if kpi_mode:
+                weekly_rules = (
+                    "\n5. 你必须输出“## 本周量化进展（OKR/KPI/专项）”章节，且每条量化结论都必须附证据编号（证据：K#xx/C#yy）。"
+                    "\n6. 未出现在“量化证据”区块中的数字禁止输出；缺少证据时改写为定性描述。"
+                )
+            else:
+                weekly_rules = (
+                    "\n5. 若上下文包含“量化证据”区块，优先引用其中数字并附证据编号（证据：K#xx/C#yy）。"
+                    "\n6. 无证据支撑时不得编造数字。"
+                )
 
         system_prompt = (
             "你是用户的个人工作助手。以下是用户近期的工作记录摘要（按时间顺序）。"
@@ -356,6 +598,7 @@ class TaskExecutor:
             "若这些活动产生了明确结论或结果，则以结论为主语来描述。\n"
             "3. 凡有可量化数据（测试通过率、性能指标、完成模块数等），必须写出具体数字。\n"
             "4. 每条工作项须能回答「这件事带来了什么价值？」，否则删除该条。"
+            f"{weekly_rules}"
         )
         user_prompt = f"## 工作记录\n\n{context}\n\n---\n\n## 用户指令\n\n{user_instruction}"
         model = "qwen2.5:3b"
@@ -383,6 +626,7 @@ class TaskExecutor:
                     completion=estimate_tokens(response['message']['content']),
                 )
         return response['message']['content']
+
 
     # ─────────────────────────────────────────────────────────────────────────
     # 数据库操作
