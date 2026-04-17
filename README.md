@@ -11,10 +11,10 @@
   <strong>🧠 越用越懂你</strong> ·
   <strong>🍞 工作自动沉淀</strong> ·
   <strong>📄 文档生成利器</strong> ·
-  <strong>🔐 本地优先</strong>
+  <strong>🔐 完全本地化</strong>
 </p>
 
-<p><code>本地优先</code> <code>中文工作流</code> <code>持续记忆</code> <code>隐私可控</code></p>
+<p><code>完全本地化</code> <code>文档生成</code> <code>长期自动记忆</code> <code>隐私可控</code></p>
 
 </div>
 
