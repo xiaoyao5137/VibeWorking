@@ -782,14 +782,24 @@ class KnowledgeExtractorV2:
             if new_norm == 0:
                 return None
 
-            # 2. 获取所有现有知识条目（仅取最近 500 条，提高相关性）
+            # 2. 获取所有现有知识条目（仅取最近 500 条，且限制在 24 小时内）
+            merge_window_ms = 24 * 60 * 60 * 1000  # 24 小时
+            time_filter = ""
+            if end_time is not None:
+                earliest_time = end_time - merge_window_ms
+                time_filter = f" AND end_time >= {earliest_time}"
+                logger.debug(f"合并窗口: 24小时内 (end_time={end_time}, earliest={earliest_time})")
+
             cursor = db_conn.execute(
-                "SELECT id, overview, entities, start_time, end_time FROM episodic_memories WHERE overview IS NOT NULL ORDER BY created_at DESC LIMIT 500"
+                f"SELECT id, overview, entities, start_time, end_time FROM episodic_memories WHERE overview IS NOT NULL{time_filter} ORDER BY created_at DESC LIMIT 500"
             )
             existing_entries = cursor.fetchall()
 
             if not existing_entries:
+                logger.debug("未找到候选合并记录（24小时内无记录）")
                 return None
+
+            logger.debug(f"候选合并记录: {len(existing_entries)} 条（24小时内）")
 
             # 3. 批量编码现有 overview，避免逐条调用
             existing_ids = [row[0] for row in existing_entries]
