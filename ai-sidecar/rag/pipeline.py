@@ -81,12 +81,19 @@ _DAILY_REPORT_SYSTEM_PROMPT = (
     "- importance <= 2：省略或归并为'其他零散操作'\n"
     "- 工具报错、系统告警、应用切换等纯系统操作一律省略\n"
     "【输出规范】输出内容中绝对禁止出现任何元数据标记（如 (重要性:3)、importance=4 等），输出直接可用的正式日报内容。\n"
-    "要求：\n"
-    "1. 用 Markdown 格式输出，按活动类型分组（如：开发、会议、沟通、阅读、其他），禁止使用表格\n"
-    "2. 每个分组列出具体工作内容（用 - 列表），每条展开描述\n"
-    "3. 末尾加【今日小结】，不少于3句话\n"
-    "4. 如果某类工作没有记录，省略该分组\n"
-    "5. 只基于提供的记录生成，不要编造内容"
+    "【格式要求 - 严格遵守】\n"
+    "1. 必须使用 Markdown 格式，按活动类型分组，每个分组必须以 ## 开头（如：## 开发、## 会议、## 沟通、## 阅读、## 其他）\n"
+    "2. 每个 ## 分组下，必须使用一级列表（- 开头），每条列表项后换行展开描述，禁止直接写段落文本\n"
+    "3. 格式示例：\n"
+    "   ## 开发\n"
+    "   - 完成了XX功能的实现\n"
+    "     详细描述做了什么、为什么做、达到了什么效果。\n"
+    "   - 修复了YY问题\n"
+    "     说明问题原因和解决方案。\n"
+    "4. 末尾必须有 ## 今日小结 章节，用段落格式（不用列表），不少于3句话\n"
+    "5. 如果某类工作没有记录，必须完全省略该分组，不要生成该章节标题，绝对禁止输出'无相关内容'等占位文本\n"
+    "6. 只基于提供的记录生成，不要编造内容\n"
+    "7. 禁止使用表格、禁止使用多层缩进的嵌套列表"
 )
 
 _PROJECT_SUMMARY_SYSTEM_PROMPT = (
@@ -233,6 +240,7 @@ class RagPipeline:
         knowledge_entity_terms = None if intent.task_type else (intent.entity_terms or None)
 
         _is_report_task = intent.task_type in ("weekly_report", "daily_report", "project_weekly_report")
+        logger.info(f"任务类型: {intent.task_type}, 是否报告任务: {_is_report_task}, start_ts: {intent.start_ts}, end_ts: {intent.end_ts}")
         knowledge_results = self._knowledge.search(
             user_query if not intent.task_type else "",
             top_k=effective_top_k * 2,
@@ -255,8 +263,10 @@ class RagPipeline:
             created_end_ts=intent.end_ts if _is_report_task else None,
         ) if self._knowledge else []
 
+        logger.info(f"知识库检索结果: {len(knowledge_results)} 条")
+
         # 周报/日报时间兜底：若本周/今天无数据，自动扩大到最近14天
-        if intent.task_type in ("weekly_report", "project_weekly_report") and not knowledge_results:
+        if intent.task_type in ("weekly_report", "project_weekly_report", "daily_report") and not knowledge_results:
             logger.info("周报任务无 knowledge 数据，回退到最近 14 天")
             fallback_start = int(time.time() * 1000) - 14 * 24 * 60 * 60 * 1000
             knowledge_results = self._knowledge.search(
@@ -408,9 +418,10 @@ class RagPipeline:
             prompt = (
                 "【输出规则】\n"
                 "1. 严格按照「用户指令」中要求的章节结构输出，没有数据支撑的章节直接跳过（含标题），不写'无相关内容'。\n"
-                "2. 每条工作项格式：「- **短标题**：详细描述」，短标题是5字以内的动宾短语，不能用长句作标题。\n"
+                "2. 每条工作项格式：「- **动词短语**：详细描述」，动词短语是5字以内的动宾结构（如「完成了XX」「修复了XX」），不能用长句作标题。\n"
                 "3. 描述直接以动词开头，省略所有人名，说明做了什么、为何重要、效果如何。\n"
-                "4. 禁止输出表格，禁止输出元数据标记。\n\n"
+                "4. 【今日小结】用段落格式（不用列表），不少于3句话。\n"
+                "5. 禁止输出表格，禁止输出元数据标记。\n\n"
                 f"以下是今日真实工作记录（共 {len(selected_contexts)} 条）：\n\n{context_text}\n\n"
                 "---\n"
                 f"用户指令：{user_query}\n"
@@ -787,6 +798,7 @@ class RagPipeline:
         selected_keys: set[str] = set()
 
         is_report_mode = query_mode == "summary"
+        logger.info(f"_select_contexts: 输入 {len(chunks)} 条，top_k={top_k}, query_mode={query_mode}")
 
         candidate_chunks = sorted(
             chunks,
@@ -804,27 +816,63 @@ class RagPipeline:
                 break
             source_type = chunk.metadata.get("source_type") or chunk.source
             if source_type != "knowledge":
+                logger.info(f"  跳过: source_type={source_type}")
                 continue
             if _is_noise_chunk(chunk):
+                logger.info(f"  跳过: 噪音chunk")
                 continue
             # 报告模式下直接丢弃 importance=1 的极低价值记录
             if is_report_mode and (chunk.metadata.get("importance") or 3) <= 1:
+                logger.info(f"  跳过: importance={chunk.metadata.get('importance')} <= 1")
                 continue
-            # 报告模式下，reading 类活动（查看/阅读文档）importance < 4 时过滤掉
-            # 避免"查看了XX文档"这类无产出价值的流水账进入报告
-            if is_report_mode and chunk.metadata.get("activity_type") == "reading" and (chunk.metadata.get("importance") or 3) < 4:
-                continue
-            # 报告模式下，activity_type 为空且 overview 中含典型"查看"行为描述的记录过滤掉
-            if is_report_mode and not chunk.metadata.get("activity_type"):
-                text_lower = chunk.text.lower()
-                if any(kw in chunk.text for kw in ("在查看", "在浏览", "在阅读", "查看了", "浏览了", "阅读了")):
+
+            activity_type = chunk.metadata.get("activity_type")
+            evidence_strength = chunk.metadata.get("evidence_strength")
+            importance = chunk.metadata.get("importance") or 3
+            history_view = chunk.metadata.get("history_view")
+
+            # 报告模式下的精细过滤
+            if is_report_mode:
+                # 1. 过滤低可信度记录（除非重要性很高）
+                if evidence_strength == "low" and importance < 4:
+                    logger.info(f"  跳过: evidence_strength=low且importance={importance} < 4")
                     continue
+
+                # 2. 过滤不相关的活动类型
+                if activity_type not in ("coding", "writing", "reading", "meeting", "chat", "ask_ai", "reviewing_history", None):
+                    logger.info(f"  跳过: activity_type={activity_type}不在白名单")
+                    continue
+
+                # 3. reading 类活动需要很高的重要性
+                if activity_type == "reading" and importance < 4:
+                    logger.info(f"  跳过: reading且importance={importance} < 4")
+                    continue
+
+                # 4. 回看历史产生的知识需要较高重要性
+                if history_view and importance < 3:
+                    logger.info(f"  跳过: history_view=True且importance={importance} < 3")
+                    continue
+
+                # 5. writing/reviewing_history 需要中等重要性
+                if activity_type in ("writing", "reviewing_history") and importance < 3:
+                    logger.info(f"  跳过: {activity_type}且importance={importance} < 3")
+                    continue
+
+            # 报告模式下，activity_type 为空且 overview 中含典型"查看"行为描述的记录过滤掉
+            if is_report_mode and not activity_type:
+                if any(kw in chunk.text for kw in ("在查看", "在浏览", "在阅读", "查看了", "浏览了", "阅读了")):
+                    logger.info(f"  跳过: activity_type为空且包含查看关键词")
+                    continue
+
             doc_key = chunk.doc_key or chunk.metadata.get("doc_key")
             if not doc_key or doc_key in selected_keys:
+                logger.info(f"  跳过: doc_key重复或为空")
                 continue
+            logger.info(f"  ✓ 选中: importance={chunk.metadata.get('importance')}, activity={chunk.metadata.get('activity_type')}")
             selected.append(chunk)
             selected_keys.add(doc_key)
 
+        logger.info(f"_select_contexts: 最终选中 {len(selected)} 条")
         return selected
 
     @staticmethod
@@ -941,9 +989,9 @@ class RagPipeline:
         # ── 任务型意图：统一设置检索参数 ─────────────────────────────────
         if task_type in ("weekly_report", "daily_report", "project_weekly_report"):
             target_time_semantics = "observed"
-            history_view = False
-            activity_types = ["coding", "reading", "meeting", "chat", "ask_ai"]
-            evidence_strengths = ["medium", "high"]
+            history_view = None  # 检索阶段不过滤，在 _select_contexts 中精细筛选
+            activity_types = []  # 检索阶段不过滤，在 _select_contexts 中精细筛选
+            evidence_strengths = []  # 检索阶段不过滤，在 _select_contexts 中精细筛选
             query_mode = "summary"
         else:
             # ── 普通查询意图 ──────────────────────────────────────────────
