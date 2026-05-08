@@ -954,14 +954,14 @@ class KnowledgeExtractorV2:
         entities_text = "、".join(str(item) for item in entities if item)
         sanitized_details = self._sanitize_bake_details_text(candidate.get('details'))
         capture_parts = [
-            self._truncate_text(candidate.get('capture_ax_text'), 600),
-            self._truncate_text(candidate.get('capture_ocr_text'), 600),
-            self._truncate_text(candidate.get('capture_input_text'), 300),
-            self._truncate_text(candidate.get('capture_audio_text'), 300),
+            self._truncate_text(candidate.get('capture_ax_text'), 3000),
+            self._truncate_text(candidate.get('capture_ocr_text'), 1000),
+            self._truncate_text(candidate.get('capture_input_text'), 500),
+            self._truncate_text(candidate.get('capture_audio_text'), 500),
         ]
         capture_text = "\n\n".join(part for part in capture_parts if part)
-        if len(capture_text) > 1800:
-            capture_text = capture_text[:1800].rstrip() + "\n...(已截断)"
+        if len(capture_text) > 5000:
+            capture_text = capture_text[:5000].rstrip() + "\n...(已截断)"
 
         return (
             f"source_knowledge_id: {candidate.get('source_knowledge_id')}\n"

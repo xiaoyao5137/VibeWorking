@@ -131,6 +131,13 @@ export interface TimelineItem {
   templateMatchLevel?: string
   sopMatchScore?: number
   sopMatchLevel?: string
+  captureIds?: number[]
+  keyTimestamps?: Array<{
+    capture_ids: number[]
+    start_ts: number
+    end_ts: number
+    summary: string
+  }>
 }
 
 export interface BakeKnowledgeItem {

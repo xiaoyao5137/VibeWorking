@@ -72,6 +72,7 @@ export interface FetchCapturesParams {
   q?:     string
   limit?: number
   offset?: number
+  ids?:   string
 }
 
 export function useFetchCaptures() {
@@ -88,6 +89,7 @@ export function useFetchCaptures() {
     if (params.q)              url.searchParams.set('q',     params.q)
     if (params.limit != null)  url.searchParams.set('limit', String(params.limit))
     if (params.offset != null) url.searchParams.set('offset', String(params.offset))
+    if (params.ids)            url.searchParams.set('ids',   params.ids)
 
     const resp = await fetch(url.toString())
     if (!resp.ok) throw new Error(`captures fetch failed: ${resp.status}`)
@@ -614,6 +616,7 @@ function mapBakeMemory(item: any): TimelineItem {
     templateMatchLevel: item.template_match_level ?? undefined,
     sopMatchScore: item.sop_match_score ?? undefined,
     sopMatchLevel: item.sop_match_level ?? undefined,
+    captureIds: item.capture_ids ?? [],
   }
 }
 

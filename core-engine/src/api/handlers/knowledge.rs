@@ -42,6 +42,8 @@ pub struct KnowledgeEntry {
     pub updated_at: String,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
+    pub capture_ids: Option<Vec<i64>>,
+    pub key_timestamps: Option<serde_json::Value>,
 }
 
 /// 查询参数
@@ -189,6 +191,8 @@ pub async fn list_knowledge(
                             updated_at: row.get(8)?,
                             created_at_ms: row.get::<_, Option<i64>>(9)?.unwrap_or(0),
                             updated_at_ms: row.get::<_, Option<i64>>(10)?.unwrap_or(0),
+                            capture_ids: None,
+                            key_timestamps: None,
                         })
                     })
                     .map_err(|e| crate::storage::StorageError::Sqlite(e))?
@@ -235,6 +239,8 @@ pub async fn list_knowledge(
                             updated_at: row.get(8)?,
                             created_at_ms: row.get::<_, Option<i64>>(9)?.unwrap_or(0),
                             updated_at_ms: row.get::<_, Option<i64>>(10)?.unwrap_or(0),
+                            capture_ids: None,
+                            key_timestamps: None,
                         })
                     })
                     .map_err(|e| crate::storage::StorageError::Sqlite(e))?
@@ -281,6 +287,8 @@ pub async fn list_knowledge(
                             updated_at: row.get(8)?,
                             created_at_ms: row.get::<_, Option<i64>>(9)?.unwrap_or(0),
                             updated_at_ms: row.get::<_, Option<i64>>(10)?.unwrap_or(0),
+                            capture_ids: None,
+                            key_timestamps: None,
                         })
                     })
                     .map_err(|e| crate::storage::StorageError::Sqlite(e))?
@@ -299,7 +307,7 @@ pub async fn list_knowledge(
                          occurrence_count, observed_at, event_time_start, event_time_end,
                          history_view, content_origin, activity_type, is_self_generated,
                          evidence_strength, user_verified, user_edited, created_at, updated_at,
-                         created_at_ms, updated_at_ms
+                         created_at_ms, updated_at_ms, capture_ids, key_timestamps
                          FROM timelines WHERE category = ?1
                            AND summary NOT LIKE ?2
                          ORDER BY updated_at_ms DESC LIMIT ?3 OFFSET ?4"
@@ -308,6 +316,10 @@ pub async fn list_knowledge(
                     let entries = stmt.query_map(rusqlite::params![category, format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX), params.limit, params.offset], |row: &rusqlite::Row| {
                         let entities_json: String = row.get(5).unwrap_or_default();
                         let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
+                        let capture_ids: Option<Vec<i64>> = row.get::<_, Option<String>>(23).ok().flatten()
+                            .and_then(|s| serde_json::from_str(&s).ok());
+                        let key_timestamps: Option<serde_json::Value> = row.get::<_, Option<String>>(24).ok().flatten()
+                            .and_then(|s| serde_json::from_str(&s).ok());
                         Ok(KnowledgeEntry {
                             id: row.get(0)?, capture_id: row.get(1)?,
                             summary: row.get(2)?, overview: row.get(3).ok(),
@@ -328,6 +340,8 @@ pub async fn list_knowledge(
                             created_at: row.get(19)?, updated_at: row.get(20)?,
                             created_at_ms: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
                             updated_at_ms: row.get::<_, Option<i64>>(22)?.unwrap_or(0),
+                            capture_ids,
+                            key_timestamps,
                         })
                     })
                     .map_err(|e| crate::storage::StorageError::Sqlite(e))?
@@ -350,7 +364,7 @@ pub async fn list_knowledge(
                  occurrence_count, observed_at, event_time_start, event_time_end,
                  history_view, content_origin, activity_type, is_self_generated,
                  evidence_strength, user_verified, user_edited, created_at, updated_at,
-                 created_at_ms, updated_at_ms
+                 created_at_ms, updated_at_ms, capture_ids, key_timestamps
                  FROM timelines
                  WHERE summary NOT LIKE ?1
                  ORDER BY updated_at_ms DESC LIMIT ?2 OFFSET ?3"
@@ -359,6 +373,10 @@ pub async fn list_knowledge(
             let entries = stmt.query_map(rusqlite::params![format!("{}%", FALLBACK_NOISE_OVERVIEW_PREFIX), params.limit, params.offset], |row: &rusqlite::Row| {
                 let entities_json: String = row.get(5).unwrap_or_default();
                 let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
+                let capture_ids: Option<Vec<i64>> = row.get::<_, Option<String>>(23).ok().flatten()
+                    .and_then(|s| serde_json::from_str(&s).ok());
+                let key_timestamps: Option<serde_json::Value> = row.get::<_, Option<String>>(24).ok().flatten()
+                    .and_then(|s| serde_json::from_str(&s).ok());
                 Ok(KnowledgeEntry {
                     id: row.get(0)?, capture_id: row.get(1)?,
                     summary: row.get(2)?, overview: row.get(3).ok(),
@@ -379,6 +397,8 @@ pub async fn list_knowledge(
                     created_at: row.get(19)?, updated_at: row.get(20)?,
                     created_at_ms: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
                     updated_at_ms: row.get::<_, Option<i64>>(22)?.unwrap_or(0),
+                    capture_ids,
+                    key_timestamps,
                 })
             })
             .map_err(|e| crate::storage::StorageError::Sqlite(e))?

@@ -264,7 +264,8 @@ impl StorageManager {
                         k.occurrence_count, k.observed_at, k.event_time_start, k.event_time_end,
                         k.history_view, k.content_origin, k.activity_type, k.is_self_generated,
                         k.evidence_strength, k.user_verified, k.user_edited, k.created_at, k.updated_at,
-                        k.created_at_ms, k.updated_at_ms
+                        k.created_at_ms, k.updated_at_ms, k.capture_ids, k.start_time, k.end_time, k.duration_minutes,
+                        k.frag_app_name, k.frag_win_title, k.time_range_start, k.time_range_end, k.key_timestamps
                  FROM timelines k
                  WHERE 1=1",
             );
@@ -907,15 +908,15 @@ fn row_to_knowledge_entry(row: &rusqlite::Row<'_>) -> Result<KnowledgeEntryRecor
         updated_at: row.get(20)?,
         created_at_ms: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
         updated_at_ms: row.get::<_, Option<i64>>(22)?.unwrap_or(0),
-        capture_ids: None,
-        start_time: None,
-        end_time: None,
-        duration_minutes: None,
-        frag_app_name: None,
-        frag_win_title: None,
-        time_range_start: None,
-        time_range_end: None,
-        key_timestamps: None,
+        capture_ids: row.get(23)?,
+        start_time: row.get(24)?,
+        end_time: row.get(25)?,
+        duration_minutes: row.get(26)?,
+        frag_app_name: row.get(27)?,
+        frag_win_title: row.get(28)?,
+        time_range_start: row.get(29)?,
+        time_range_end: row.get(30)?,
+        key_timestamps: row.get(31)?,
     })
 }
 

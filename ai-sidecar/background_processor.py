@@ -96,6 +96,8 @@ class _LegacyKnowledgeExtractorAdapter:
         end_time = last_capture['ts']
         duration_minutes = max(0, int((end_time - start_time) / 60000))
 
+        segments = self._generate_segments(captures)
+
         return {
             'capture_ids': json.dumps([capture['id'] for capture in captures]),
             'summary': extracted.get('summary', ''),
@@ -110,7 +112,7 @@ class _LegacyKnowledgeExtractorAdapter:
             'duration_minutes': duration_minutes,
             'time_range_start': start_time,
             'time_range_end': end_time,
-            'key_timestamps': json.dumps([start_time, end_time]),
+            'key_timestamps': json.dumps(segments),
             'frag_app_name': last_capture.get('app_name') or first_capture.get('app_name'),
             'frag_win_title': last_capture.get('window_title') or first_capture.get('window_title'),
             'observed_at': end_time,
@@ -122,6 +124,40 @@ class _LegacyKnowledgeExtractorAdapter:
             'is_self_generated': False,
             'evidence_strength': 'low',
         }
+
+    def _generate_segments(self, captures: list[dict]) -> list[dict]:
+        """生成语义分段"""
+        segments_map = {}
+        for cap in captures:
+            key = f"{cap.get('app_name')}|{cap.get('window_title', '')}"
+            if key not in segments_map:
+                segments_map[key] = {
+                    'capture_ids': [],
+                    'start_ts': cap['ts'],
+                    'end_ts': cap['ts'],
+                    'app_name': cap.get('app_name', ''),
+                    'window_title': cap.get('window_title', ''),
+                    'texts': []
+                }
+            seg = segments_map[key]
+            seg['capture_ids'].append(cap['id'])
+            seg['end_ts'] = cap['ts']
+            text = (cap.get('ocr_text') or cap.get('ax_text') or '').strip()
+            if text:
+                seg['texts'].append(text[:100])
+
+        segments = []
+        for seg in segments_map.values():
+            summary = ' '.join(seg['texts'])[:60]
+            if not summary:
+                summary = f"{seg['app_name']}活动"
+            segments.append({
+                'capture_ids': seg['capture_ids'],
+                'start_ts': seg['start_ts'],
+                'end_ts': seg['end_ts'],
+                'summary': summary
+            })
+        return segments
 
 
 class BackgroundProcessor:

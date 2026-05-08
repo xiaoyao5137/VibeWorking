@@ -69,10 +69,7 @@ const BakeMemoriesTab: React.FC<{
   return (
     <div className="bake-split-list-detail bake-split-list-detail--memories-fixed">
       <BakeCard className="bake-memory-list-card bake-memory-list-card--fixed">
-        <BakeSectionHeader
-          title="时间线"
-          subtitle="左侧只展示 20 条，选中后在下方完成提炼与查看来源采集记录"
-        />
+        <BakeSectionHeader title="时间线" />
         {memories.length === 0 ? (
           <div className="bake-kv">
             <div className="bake-muted">当前还没有初始化出的时间线，可以基于现有 knowledge 与关联 capture 回填一批候选。</div>
@@ -165,6 +162,32 @@ const BakeMemoriesTab: React.FC<{
                 <div className="bake-kv__title">摘要概览</div>
                 <div className="bake-muted" style={{ lineHeight: 1.8 }}>{selected.summary || '暂无摘要'}</div>
               </div>
+              {selected.captureIds && selected.captureIds.length > 0 && (
+                <div>
+                  <div className="bake-kv__title">详细内容</div>
+                  <div className="bake-muted" style={{ lineHeight: 1.8 }}>
+                    包含 {selected.captureIds.length} 个采集记录
+                    {selected.captureIds.map((captureId, idx) => (
+                      <div key={captureId} style={{ marginTop: 4 }}>
+                        <button
+                          type="button"
+                          onClick={() => onOpenMemoryLink(undefined, String(captureId))}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#0066cc',
+                            cursor: 'pointer',
+                            padding: 0,
+                            textDecoration: 'underline'
+                          }}
+                        >
+                          采集记录 #{captureId}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="bake-memory-detail__stack">

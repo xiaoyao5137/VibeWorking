@@ -135,7 +135,7 @@ const RagPanel: React.FC<RagPanelProps> = ({ className = '' }) => {
           ref={textareaRef}
           className="rag-panel__input"
           data-testid="rag-panel-input"
-          placeholder={modelsReady ? "问我任何工作相关的问题..." : "模型未就绪，请先配置模型"}
+          placeholder={modelStatusLoading || modelsReady ? "问我任何工作相关的问题..." : "模型未就绪，请先配置模型"}
           value={inputValue}
           onChange={handleInputChange}
           rows={3}

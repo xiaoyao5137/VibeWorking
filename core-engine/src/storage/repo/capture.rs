@@ -157,6 +157,31 @@ impl StorageManager {
         })
     }
 
+    /// 按 id 列表批量获取记录。
+    pub fn get_captures_by_ids(&self, ids: &[i64]) -> Result<Vec<CaptureRecord>, StorageError> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        self.with_conn(|conn| {
+            let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!(
+                "SELECT id, ts, app_name, app_bundle_id, win_title, event_type,
+                        ax_text, ax_focused_role, ax_focused_id,
+                        ocr_text, screenshot_path, input_text, audio_text,
+                        is_sensitive, pii_scrubbed
+                 FROM captures WHERE id IN ({}) ORDER BY ts",
+                placeholders
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let mut rows = stmt.query(rusqlite::params_from_iter(ids))?;
+            let mut result = Vec::new();
+            while let Some(row) = rows.next()? {
+                result.push(row_to_capture(row)?);
+            }
+            Ok(result)
+        })
+    }
+
     /// 按过滤条件列举采集记录，按 ts 倒序。
     pub fn list_captures(
         &self,

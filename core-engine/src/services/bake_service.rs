@@ -200,6 +200,7 @@ pub struct BakeMemoryPayload {
     pub template_match_level: Option<String>,
     pub sop_match_score: Option<f64>,
     pub sop_match_level: Option<String>,
+    pub capture_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1935,8 +1936,40 @@ fn request_to_new_template(_payload: CreateOrUpdateDesignRequest) -> Result<NewB
     Err(ApiError::Internal("Design CRUD not yet implemented".to_string()))
 }
 
-fn map_template_record(_record: BakeTemplateRecord) -> BakeDesignPayload {
-    unimplemented!("Design CRUD not yet implemented")
+fn map_template_record(record: BakeTemplateRecord) -> BakeDesignPayload {
+    use chrono::{DateTime, Utc};
+    let updated_at = DateTime::<Utc>::from_timestamp(record.updated_at / 1000, 0)
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_else(|| record.updated_at.to_string());
+
+    BakeDesignPayload {
+        id: record.id.to_string(),
+        name: record.name,
+        category: record.category,
+        status: record.status,
+        tags: parse_json_vec_string(&record.tags),
+        applicable_tasks: parse_json_vec_string(&record.applicable_tasks),
+        source_article_ids: Vec::new(),
+        source_memory_ids: parse_json_vec_string(&record.source_memory_ids),
+        source_capture_ids: parse_json_vec_string(&record.source_capture_ids),
+        source_episode_ids: parse_json_vec_string(&record.source_episode_ids),
+        linked_knowledge_ids: parse_json_vec_string(&record.linked_knowledge_ids),
+        structure_sections: serde_json::from_str(&record.structure_sections).unwrap_or_default(),
+        style_phrases: parse_json_vec_string(&record.style_phrases),
+        replacement_rules: serde_json::from_str(&record.replacement_rules).unwrap_or_default(),
+        prompt_hint: record.prompt_hint,
+        diagram_code: record.diagram_code,
+        image_assets: parse_json_vec_string(&record.image_assets),
+        usage_count: record.usage_count,
+        match_score: record.match_score,
+        match_level: record.match_level,
+        creation_mode: record.creation_mode,
+        review_status: record.review_status,
+        evidence_summary: record.evidence_summary,
+        generation_version: record.generation_version,
+        deleted_at: record.deleted_at,
+        updated_at,
+    }
 }
 
 fn map_memory_record(record: KnowledgeEntryRecord) -> BakeMemoryPayload {
@@ -1945,6 +1978,11 @@ fn map_memory_record(record: KnowledgeEntryRecord) -> BakeMemoryPayload {
         .get("tags")
         .and_then(|value| serde_json::from_value::<Vec<String>>(value.clone()).ok())
         .unwrap_or_else(|| parse_json_vec_string(&record.entities));
+
+    let capture_ids = record.capture_ids
+        .as_deref()
+        .and_then(|s| serde_json::from_str::<Vec<i64>>(s).ok())
+        .unwrap_or_default();
 
     BakeMemoryPayload {
         id: record.id.to_string(),
@@ -2022,6 +2060,7 @@ fn map_memory_record(record: KnowledgeEntryRecord) -> BakeMemoryPayload {
             .get("sop_match_level")
             .and_then(Value::as_str)
             .map(ToString::to_string),
+        capture_ids,
     }
 }
 

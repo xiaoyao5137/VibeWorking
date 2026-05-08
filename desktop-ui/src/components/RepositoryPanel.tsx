@@ -3,9 +3,10 @@ import {
   useFetchBakeMemories,
   useFetchBakeCaptureDetail,
   useFetchBakeCaptures,
+  useFetchCaptures,
 } from '../hooks/useApi'
 import { useAppStore } from '../store/useAppStore'
-import type { BakeCaptureItem, TimelineItem, RepositoryTab } from '../types'
+import type { BakeCaptureItem, TimelineItem, RepositoryTab, CaptureRecord } from '../types'
 import BakeCaptureTab, { parseDateInputToMs } from './bake/BakeCaptureTab'
 import BakeHeader from './bake/BakeHeader'
 import { BakeButton, BakeCard, BakePill, BakeSectionHeader } from './bake/BakeShared'
@@ -63,12 +64,14 @@ const RepositoryPanel: React.FC = () => {
   const fetchMemories = useFetchBakeMemories()
   const fetchCaptures = useFetchBakeCaptures()
   const fetchCaptureDetail = useFetchBakeCaptureDetail()
+  const fetchCapturesRaw = useFetchCaptures()
 
   const [memories, setMemories] = useState<TimelineItem[]>([])
   const [memoryTotal, setMemoryTotal] = useState(0)
   const [captureItems, setCaptureItems] = useState<BakeCaptureItem[]>([])
   const [captureTotal, setCaptureTotal] = useState(0)
   const [captureDetail, setCaptureDetail] = useState<BakeCaptureItem | null>(null)
+  const [memoryCaptures, setMemoryCaptures] = useState<CaptureRecord[]>([])
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [memoryPageInput, setMemoryPageInput] = useState('')
   const [draftMemoryQuery, setDraftMemoryQuery] = useState(repositoryMemoryQuery)
@@ -178,6 +181,17 @@ const RepositoryPanel: React.FC = () => {
       setSelectedCaptureId(captureItems[0].id)
     }
   }, [captureItems, repositoryTab, selectedCaptureId, setSelectedCaptureId])
+
+  useEffect(() => {
+    const memory = memories.find(m => m.id === selectedMemoryId)
+    if (!memory?.captureIds || memory.captureIds.length === 0) {
+      setMemoryCaptures([])
+      return
+    }
+    void fetchCapturesRaw({ ids: memory.captureIds.join(','), limit: 500 }).then(data => {
+      setMemoryCaptures(data.captures.sort((a, b) => a.ts - b.ts))
+    }).catch(() => setMemoryCaptures([]))
+  }, [selectedMemoryId, memories, fetchCapturesRaw])
 
   const resolvedMemoryId = selectedMemoryId ?? memories[0]?.id ?? null
   const resolvedCaptureId = selectedCaptureId ?? captureItems[0]?.id ?? null
@@ -454,16 +468,98 @@ const RepositoryPanel: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="bake-grid-2">
-                    <div className="bake-memory-action-card">
-                      <div className="bake-kv__title">时间线摘要</div>
-                      <div className="bake-muted" style={{ lineHeight: 1.8 }}>{selectedMemory.summary || '暂无摘要'}</div>
-                    </div>
-                    <div className="bake-memory-action-card">
-                      <div className="bake-kv__title">浏览提示</div>
-                      <div className="bake-muted" style={{ lineHeight: 1.8 }}>采集只用于浏览时间线与回溯上下文；如需提炼为知识、模板或 SOP，请回到收藏的时间线页。</div>
-                    </div>
+                  <div className="bake-memory-action-card">
+                    <div className="bake-kv__title">时间线摘要</div>
+                    <div className="bake-muted" style={{ lineHeight: 1.8 }}>{selectedMemory.summary || '暂无摘要'}</div>
                   </div>
+
+                  {memoryCaptures.length > 0 && (() => {
+                    const minTs = memoryCaptures[0].ts
+                    const maxTs = memoryCaptures[memoryCaptures.length - 1].ts
+                    const minDate = new Date(minTs)
+                    const maxDate = new Date(maxTs)
+                    const timeRange = `${minDate.getMonth() + 1}月${minDate.getDate()}日 ${minDate.getHours()}:${String(minDate.getMinutes()).padStart(2, '0')}-${maxDate.getHours()}:${String(maxDate.getMinutes()).padStart(2, '0')}`
+
+                    const segments = selectedMemory.keyTimestamps || []
+                    const items = segments.length > 0 ? segments.map(seg => {
+                      const minDate = new Date(seg.start_ts)
+                      const maxDate = new Date(seg.end_ts)
+                      const itemTimeRange = seg.start_ts === seg.end_ts
+                        ? `${minDate.getHours()}:${String(minDate.getMinutes()).padStart(2, '0')}`
+                        : `${minDate.getHours()}:${String(minDate.getMinutes()).padStart(2, '0')}-${maxDate.getHours()}:${String(maxDate.getMinutes()).padStart(2, '0')}`
+                      return {
+                        ids: seg.capture_ids,
+                        itemTimeRange,
+                        summary: seg.summary
+                      }
+                    }) : (() => {
+                      const itemMap = new Map<string, { ids: number[]; captures: CaptureRecord[] }>()
+                      memoryCaptures.forEach(cap => {
+                        const key = `${cap.app_name}|${cap.win_title || ''}`
+                        if (!itemMap.has(key)) {
+                          itemMap.set(key, { ids: [], captures: [] })
+                        }
+                        const item = itemMap.get(key)!
+                        item.ids.push(cap.id)
+                        item.captures.push(cap)
+                      })
+                      return Array.from(itemMap.values()).map(item => {
+                        const minTs = Math.min(...item.captures.map(c => c.ts))
+                        const maxTs = Math.max(...item.captures.map(c => c.ts))
+                        const minDate = new Date(minTs)
+                        const maxDate = new Date(maxTs)
+                        const itemTimeRange = minTs === maxTs
+                          ? `${minDate.getHours()}:${String(minDate.getMinutes()).padStart(2, '0')}`
+                          : `${minDate.getHours()}:${String(minDate.getMinutes()).padStart(2, '0')}-${maxDate.getHours()}:${String(maxDate.getMinutes()).padStart(2, '0')}`
+                        const text = item.captures.map(c => c.ocr_text || c.ax_text || '').join(' ').trim()
+                        const summary = text.slice(0, 60) + (text.length > 60 ? '...' : '')
+                        return { ids: item.ids, itemTimeRange, summary: summary || `${item.captures[0].app_name}活动` }
+                      })
+                    })()
+
+                    return (
+                      <div className="bake-memory-action-card">
+                        <div className="bake-kv__title">详细内容</div>
+                        <div style={{ marginTop: 12 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 12, color: '#333' }}>{timeRange}</div>
+                          <div style={{ paddingLeft: 12, borderLeft: '2px solid #e0e0e0' }}>
+                            {items.map((item, idx) => (
+                              <div key={idx} style={{ marginBottom: 12, fontSize: 13, lineHeight: 1.6 }}>
+                                <div style={{ marginBottom: 4 }}>
+                                  <span style={{ fontWeight: 600, color: '#666', marginRight: 8 }}>{item.itemTimeRange}</span>
+                                  <span>{item.summary}</span>
+                                </div>
+                                <div>
+                                  {item.ids.map((id, i) => (
+                                    <span key={id}>
+                                      <a
+                                        href="#"
+                                        onClick={(e) => {
+                                          e.preventDefault()
+                                          setCaptureBackTarget({
+                                            windowMode: 'knowledge',
+                                            repositoryTab: 'memory',
+                                            selectedMemoryId: selectedMemory.id,
+                                          })
+                                          setRepositoryTab('capture')
+                                          setSelectedCaptureId(String(id))
+                                          setStatusMessage(`已切换到采集记录 #${id}`)
+                                        }}
+                                        style={{ color: '#0066cc', textDecoration: 'none', fontSize: 12 }}
+                                      >
+                                        #{id}
+                                      </a>
+                                      {i < item.ids.length - 1 && ', '}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
 
                   <div className="bake-memory-action-card bake-memory-action-card--secondary">
                     <div>
