@@ -208,11 +208,19 @@ const BakeKnowledgeTab: React.FC<{
               <div className="bake-kv__title">概述</div>
               <div className="bake-muted" style={{ lineHeight: 1.7 }}>{selected.overview || '暂无概述'}</div>
             </div>
+            {selected.detailedContent && (
+              <div className="bake-knowledge-detail__section">
+                <div className="bake-kv__title">详细内容</div>
+                <div className="bake-muted" style={{ lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                  {selected.detailedContent}
+                </div>
+              </div>
+            )}
             <div className="bake-knowledge-detail__section">
-              <div className="bake-kv__title">详情</div>
+              <div className="bake-kv__title">元数据</div>
               <div className="bake-muted" style={{ lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
                 {(() => {
-                  if (!selected.details) return '暂无详情'
+                  if (!selected.details) return '暂无元数据'
                   try {
                     const parsed = JSON.parse(selected.details)
                     return JSON.stringify(parsed, null, 2)

@@ -146,6 +146,7 @@ export interface BakeKnowledgeItem {
   summary: string
   overview?: string
   details?: string
+  detailedContent?: string
   entities: string[]
   category: string
   importance: number

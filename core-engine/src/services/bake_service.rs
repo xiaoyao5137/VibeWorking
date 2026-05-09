@@ -323,6 +323,7 @@ pub struct BakeArtifactExtraction {
 pub struct BakeKnowledgeArtifactPayload {
     pub summary: String,
     pub overview: Option<String>,
+    pub details: Option<String>,
     #[serde(default)]
     pub entities: Vec<String>,
     pub importance: Option<i64>,
@@ -366,6 +367,7 @@ pub struct BakeDesignArtifactPayload {
 pub struct BakeSopArtifactPayload {
     pub summary: String,
     pub overview: Option<String>,
+    pub details: Option<String>,
     pub source_title: Option<String>,
     #[serde(default)]
     pub trigger_keywords: Vec<String>,
@@ -1745,6 +1747,7 @@ fn build_bake_knowledge_entry(
             .unwrap_or_else(|| payload.summary.clone()),
         summary: payload.summary.clone(),
         content: Some(details.to_string()),
+        detailed_content: payload.details.clone(),
         entities: to_json_string(&entities)?,
         importance: payload
             .importance
@@ -1770,6 +1773,7 @@ fn build_bake_design(
         title: payload.title.clone(),
         summary: payload.summary.clone(),
         content: Some(payload.content.clone()),
+        detailed_content: None,
         entities: to_json_string(&entities)?,
         importance: source.knowledge.importance,
         source_capture_ids: Some(to_json_string(&source_capture_ids)?),
@@ -1820,6 +1824,7 @@ fn build_bake_sop_entry(
             .unwrap_or_else(|| payload.summary.clone()),
         summary: payload.summary.clone(),
         content: Some(details.to_string()),
+        detailed_content: payload.details.clone(),
         entities: source.knowledge.entities.clone(),
         importance: source.knowledge.importance.max(3),
             source_capture_ids: None,

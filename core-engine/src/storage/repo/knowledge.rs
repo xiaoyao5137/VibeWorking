@@ -48,18 +48,18 @@ impl StorageManager {
                     let title = entry.overview.as_deref().unwrap_or(&entry.summary);
                     let sql = if entry.category == "bake_knowledge" {
                         "INSERT INTO bake_knowledge (
-                            timeline_id, title, summary, content, entities, importance,
+                            timeline_id, title, summary, content, detailed_content, entities, importance,
                             user_verified, user_edited,
                             created_at, updated_at, created_at_ms, updated_at_ms
-                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0,
-                                   datetime(?7 / 1000, 'unixepoch'), datetime(?7 / 1000, 'unixepoch'), ?7, ?7)"
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0,
+                                   datetime(?8 / 1000, 'unixepoch'), datetime(?8 / 1000, 'unixepoch'), ?8, ?8)"
                     } else {
                         "INSERT INTO bake_sops (
-                            timeline_id, title, summary, content, entities, importance,
+                            timeline_id, title, summary, content, detailed_content, entities, importance,
                             user_verified, user_edited,
                             created_at, updated_at, created_at_ms, updated_at_ms
-                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0,
-                                   datetime(?7 / 1000, 'unixepoch'), datetime(?7 / 1000, 'unixepoch'), ?7, ?7)"
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0,
+                                   datetime(?8 / 1000, 'unixepoch'), datetime(?8 / 1000, 'unixepoch'), ?8, ?8)"
                     };
                     conn.execute(
                         sql,
@@ -67,6 +67,7 @@ impl StorageManager {
                             source_id,
                             title,
                             entry.summary,
+                            entry.details,
                             entry.details,
                             entry.entities,
                             entry.importance,
@@ -388,8 +389,8 @@ impl StorageManager {
     ) -> Result<Vec<BakeKnowledgeRecord>, StorageError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, timeline_id, title, summary, content, entities, importance,
-                        user_verified, user_edited, created_at, updated_at, created_at_ms, updated_at_ms
+                "SELECT id, timeline_id, title, summary, content, detailed_content, entities, importance,
+                        user_verified, user_edited, created_at, updated_at, created_at_ms, updated_at_ms, source_capture_ids
                  FROM bake_knowledge ORDER BY updated_at_ms DESC LIMIT ? OFFSET ?"
             )?;
             let rows = stmt.query_map(params![limit as i64, offset as i64], |row| {
@@ -1217,19 +1218,21 @@ impl StorageManager {
             let now = current_ts_ms();
             conn.execute(
                 "INSERT INTO designs (
-                    timeline_id, title, summary, content, entities, importance,
+                    timeline_id, title, summary, content, detailed_content, entities, importance,
                     user_verified, user_edited,
-                    created_at, updated_at, created_at_ms, updated_at_ms
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0,
-                           datetime(?7 / 1000, 'unixepoch'), datetime(?7 / 1000, 'unixepoch'), ?7, ?7)",
+                    created_at, updated_at, created_at_ms, updated_at_ms, source_capture_ids
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0,
+                           datetime(?8 / 1000, 'unixepoch'), datetime(?8 / 1000, 'unixepoch'), ?8, ?8, ?9)",
                 params![
                     article.timeline_id,
                     article.title,
                     article.summary,
                     article.content,
+                    article.detailed_content,
                     article.entities,
                     article.importance,
                     now,
+                    article.source_capture_ids,
                 ],
             )?;
             Ok(conn.last_insert_rowid())
@@ -1243,8 +1246,8 @@ impl StorageManager {
     ) -> Result<Vec<BakeArticleRecord>, StorageError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, timeline_id, title, summary, content, entities, importance,
-                        user_verified, user_edited, created_at, updated_at, created_at_ms, updated_at_ms
+                "SELECT id, timeline_id, title, summary, content, detailed_content, entities, importance,
+                        user_verified, user_edited, created_at, updated_at, created_at_ms, updated_at_ms, source_capture_ids
                  FROM designs ORDER BY updated_at_ms DESC LIMIT ? OFFSET ?"
             )?;
             let rows = stmt.query_map(params![limit as i64, offset as i64], |row| {
@@ -1264,8 +1267,8 @@ impl StorageManager {
     pub fn get_bake_article(&self, id: i64) -> Result<Option<BakeArticleRecord>, StorageError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, timeline_id, title, summary, content, entities, importance,
-                        user_verified, user_edited, created_at, updated_at, created_at_ms, updated_at_ms
+                "SELECT id, timeline_id, title, summary, content, detailed_content, entities, importance,
+                        user_verified, user_edited, created_at, updated_at, created_at_ms, updated_at_ms, source_capture_ids
                  FROM designs WHERE id = ?1"
             )?;
             match stmt.query_row(params![id], |row| {
@@ -1314,15 +1317,16 @@ fn row_to_bake_article(row: &rusqlite::Row<'_>) -> Result<BakeArticleRecord, Sto
         title: row.get(2)?,
         summary: row.get(3)?,
         content: row.get(4)?,
-        entities: row.get(5)?,
-        importance: row.get::<_, Option<i64>>(6)?.unwrap_or(3),
-        user_verified: row.get::<_, Option<bool>>(7)?.unwrap_or(false),
-        user_edited: row.get::<_, Option<bool>>(8)?.unwrap_or(false),
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-        created_at_ms: row.get::<_, Option<i64>>(11)?.unwrap_or(0),
-        updated_at_ms: row.get::<_, Option<i64>>(12)?.unwrap_or(0),
-        source_capture_ids: None,
+        detailed_content: row.get(5)?,
+        entities: row.get(6)?,
+        importance: row.get::<_, Option<i64>>(7)?.unwrap_or(3),
+        user_verified: row.get::<_, Option<bool>>(8)?.unwrap_or(false),
+        user_edited: row.get::<_, Option<bool>>(9)?.unwrap_or(false),
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+        created_at_ms: row.get::<_, Option<i64>>(12)?.unwrap_or(0),
+        updated_at_ms: row.get::<_, Option<i64>>(13)?.unwrap_or(0),
+        source_capture_ids: row.get(14)?,
     })
 }
 
@@ -1336,19 +1340,21 @@ impl StorageManager {
             let now = current_ts_ms();
             conn.execute(
                 "INSERT INTO bake_knowledge (
-                    timeline_id, title, summary, content, entities, importance,
+                    timeline_id, title, summary, content, detailed_content, entities, importance,
                     user_verified, user_edited,
-                    created_at, updated_at, created_at_ms, updated_at_ms
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0,
-                           datetime(?7 / 1000, 'unixepoch'), datetime(?7 / 1000, 'unixepoch'), ?7, ?7)",
+                    created_at, updated_at, created_at_ms, updated_at_ms, source_capture_ids
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0,
+                           datetime(?8 / 1000, 'unixepoch'), datetime(?8 / 1000, 'unixepoch'), ?8, ?8, ?9)",
                 params![
                     knowledge.timeline_id,
                     knowledge.title,
                     knowledge.summary,
                     knowledge.content,
+                    knowledge.detailed_content,
                     knowledge.entities,
                     knowledge.importance,
                     now,
+                    knowledge.source_capture_ids,
                 ],
             )?;
             Ok(conn.last_insert_rowid())
@@ -1365,8 +1371,8 @@ impl StorageManager {
     pub fn get_bake_knowledge(&self, id: i64) -> Result<Option<BakeKnowledgeRecord>, StorageError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, timeline_id, title, summary, content, entities, importance,
-                        user_verified, user_edited, created_at, updated_at, created_at_ms, updated_at_ms
+                "SELECT id, timeline_id, title, summary, content, detailed_content, entities, importance,
+                        user_verified, user_edited, created_at, updated_at, created_at_ms, updated_at_ms, source_capture_ids
                  FROM bake_knowledge WHERE id = ?1"
             )?;
             match stmt.query_row(params![id], |row| {
@@ -1415,15 +1421,16 @@ fn row_to_bake_knowledge(row: &rusqlite::Row<'_>) -> Result<BakeKnowledgeRecord,
         title: row.get(2)?,
         summary: row.get(3)?,
         content: row.get(4)?,
-        entities: row.get(5)?,
-        importance: row.get::<_, Option<i64>>(6)?.unwrap_or(3),
-        user_verified: row.get::<_, Option<bool>>(7)?.unwrap_or(false),
-        user_edited: row.get::<_, Option<bool>>(8)?.unwrap_or(false),
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-        created_at_ms: row.get::<_, Option<i64>>(11)?.unwrap_or(0),
-        updated_at_ms: row.get::<_, Option<i64>>(12)?.unwrap_or(0),
-        source_capture_ids: None,
+        detailed_content: row.get(5)?,
+        entities: row.get(6)?,
+        importance: row.get::<_, Option<i64>>(7)?.unwrap_or(3),
+        user_verified: row.get::<_, Option<bool>>(8)?.unwrap_or(false),
+        user_edited: row.get::<_, Option<bool>>(9)?.unwrap_or(false),
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+        created_at_ms: row.get::<_, Option<i64>>(12)?.unwrap_or(0),
+        updated_at_ms: row.get::<_, Option<i64>>(13)?.unwrap_or(0),
+        source_capture_ids: row.get(14)?,
     })
 }
 
@@ -1437,19 +1444,21 @@ impl StorageManager {
             let now = current_ts_ms();
             conn.execute(
                 "INSERT INTO bake_sops (
-                    timeline_id, title, summary, content, entities, importance,
+                    timeline_id, title, summary, content, detailed_content, entities, importance,
                     user_verified, user_edited,
-                    created_at, updated_at, created_at_ms, updated_at_ms
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0,
-                           datetime(?7 / 1000, 'unixepoch'), datetime(?7 / 1000, 'unixepoch'), ?7, ?7)",
+                    created_at, updated_at, created_at_ms, updated_at_ms, source_capture_ids
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0,
+                           datetime(?8 / 1000, 'unixepoch'), datetime(?8 / 1000, 'unixepoch'), ?8, ?8, ?9)",
                 params![
                     sop.timeline_id,
                     sop.title,
                     sop.summary,
                     sop.content,
+                    sop.detailed_content,
                     sop.entities,
                     sop.importance,
                     now,
+                    sop.source_capture_ids,
                 ],
             )?;
             Ok(conn.last_insert_rowid())
@@ -1463,8 +1472,8 @@ impl StorageManager {
     ) -> Result<Vec<BakeSopRecord>, StorageError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, timeline_id, title, summary, content, entities, importance,
-                        user_verified, user_edited, created_at, updated_at, created_at_ms, updated_at_ms
+                "SELECT id, timeline_id, title, summary, content, detailed_content, entities, importance,
+                        user_verified, user_edited, created_at, updated_at, created_at_ms, updated_at_ms, source_capture_ids
                  FROM bake_sops ORDER BY updated_at_ms DESC LIMIT ? OFFSET ?"
             )?;
             let rows = stmt.query_map(params![limit as i64, offset as i64], |row| {
@@ -1484,8 +1493,8 @@ impl StorageManager {
     pub fn get_bake_sop(&self, id: i64) -> Result<Option<BakeSopRecord>, StorageError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, timeline_id, title, summary, content, entities, importance,
-                        user_verified, user_edited, created_at, updated_at, created_at_ms, updated_at_ms
+                "SELECT id, timeline_id, title, summary, content, detailed_content, entities, importance,
+                        user_verified, user_edited, created_at, updated_at, created_at_ms, updated_at_ms, source_capture_ids
                  FROM bake_sops WHERE id = ?1"
             )?;
             match stmt.query_row(params![id], |row| {
@@ -1534,15 +1543,16 @@ fn row_to_bake_sop(row: &rusqlite::Row<'_>) -> Result<BakeSopRecord, StorageErro
         title: row.get(2)?,
         summary: row.get(3)?,
         content: row.get(4)?,
-        entities: row.get(5)?,
-        importance: row.get::<_, Option<i64>>(6)?.unwrap_or(3),
-        user_verified: row.get::<_, Option<bool>>(7)?.unwrap_or(false),
-        user_edited: row.get::<_, Option<bool>>(8)?.unwrap_or(false),
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-        created_at_ms: row.get::<_, Option<i64>>(11)?.unwrap_or(0),
-        updated_at_ms: row.get::<_, Option<i64>>(12)?.unwrap_or(0),
-        source_capture_ids: None,
+        detailed_content: row.get(5)?,
+        entities: row.get(6)?,
+        importance: row.get::<_, Option<i64>>(7)?.unwrap_or(3),
+        user_verified: row.get::<_, Option<bool>>(8)?.unwrap_or(false),
+        user_edited: row.get::<_, Option<bool>>(9)?.unwrap_or(false),
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+        created_at_ms: row.get::<_, Option<i64>>(12)?.unwrap_or(0),
+        updated_at_ms: row.get::<_, Option<i64>>(13)?.unwrap_or(0),
+        source_capture_ids: row.get(14)?,
     })
 }
 
