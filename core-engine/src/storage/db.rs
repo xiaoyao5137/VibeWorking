@@ -84,6 +84,14 @@ static MIGRATIONS: &[(&str, &str)] = &[
         "018_create_bake_designs",
         include_str!("migrations/018_create_bake_designs.sql"),
     ),
+    (
+        "019_rename_to_timelines",
+        include_str!("migrations/019_rename_to_timelines.sql"),
+    ),
+    (
+        "020_add_detailed_content",
+        include_str!("migrations/020_add_detailed_content.sql"),
+    ),
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
