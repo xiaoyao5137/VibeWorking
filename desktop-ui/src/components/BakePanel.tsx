@@ -164,7 +164,6 @@ const BakePanel: React.FC = () => {
   const [templateBucket, setTemplateBucket] = useState<BakeBucket>('extracted')
   const [templates, setTemplates] = useState<ArticleTemplate[]>([])
   const [templateTotal, setTemplateTotal] = useState(0)
-  const [sopBucket, setSopBucket] = useState<BakeBucket>('extracted')
   const [sopCandidates, setSopCandidates] = useState<SopCandidate[]>([])
   const [sopTotal, setSopTotal] = useState(0)
   const [styleConfig, setStyleConfig] = useState<WritingStyleConfig>(defaultStyleConfig)
@@ -238,7 +237,6 @@ const BakePanel: React.FC = () => {
     if (bakeTab !== 'sop') return
     void fetchSops({
       q: bakeSopQuery.trim() || undefined,
-      bucket: sopBucket,
       limit: bakeSopLimit,
       offset: bakeSopOffset,
     }).then((data) => {
@@ -247,7 +245,7 @@ const BakePanel: React.FC = () => {
     }).catch((error) => {
       setStatusMessage(error instanceof Error ? error.message : '操作手册加载失败')
     })
-  }, [bakeSopLimit, bakeSopOffset, bakeSopQuery, bakeTab, fetchSops, sopBucket])
+  }, [bakeSopLimit, bakeSopOffset, bakeSopQuery, bakeTab, fetchSops])
 
   useEffect(() => {
     if (!statusMessage) return
@@ -310,10 +308,9 @@ const BakePanel: React.FC = () => {
     setTemplateTotal(data.total)
   }
 
-  const refreshSops = async (offset = bakeSopOffset, bucket = sopBucket) => {
+  const refreshSops = async (offset = bakeSopOffset) => {
     const data = await fetchSops({
       q: bakeSopQuery.trim() || undefined,
-      bucket,
       limit: bakeSopLimit,
       offset,
     })
@@ -340,12 +337,6 @@ const BakePanel: React.FC = () => {
     setTemplateBucket(bucket)
     setSelectedTemplateId(null)
     setBakeTemplateOffset(0)
-  }
-
-  const handleSopBucketChange = (bucket: BakeBucket) => {
-    setSopBucket(bucket)
-    setSelectedSopId(null)
-    setBakeSopOffset(0)
   }
 
   const handleOpenMemory = (id: string) => {
@@ -433,17 +424,12 @@ const BakePanel: React.FC = () => {
   const handlePromoteToSop = async (id: string) => {
     try {
       const created = await promoteMemoryToSop(id)
-      const nextBucket = resolveSopBucket(created)
-      setSopBucket(nextBucket)
       setSopCandidates(prev => [created, ...prev.filter(item => item.id !== created.id)])
       setBakeTab('sop')
       setBakeSopOffset(0)
       setSelectedSopId(created.id)
       setStatusMessage(`已生成工作流程指导「${created.extractedProblem || created.sourceTitle || created.id}」`)
       await refreshOverview()
-      if (nextBucket !== sopBucket) {
-        await refreshSops(0, nextBucket)
-      }
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '生成工作流程指导失败')
     }
@@ -586,16 +572,12 @@ const BakePanel: React.FC = () => {
   const handleAdoptSop = async (id: string) => {
     try {
       const adopted = await adoptSop(id)
-      if (sopBucket === 'pending') {
-        const nextOffset = getFallbackOffsetAfterRemoval(sopCandidates.length, bakeSopOffset, bakeSopLimit)
-        setSelectedSopId(null)
-        if (nextOffset !== bakeSopOffset) {
-          setBakeSopOffset(nextOffset)
-        } else {
-          await refreshSops(nextOffset, sopBucket)
-        }
+      const nextOffset = getFallbackOffsetAfterRemoval(sopCandidates.length, bakeSopOffset, bakeSopLimit)
+      setSelectedSopId(null)
+      if (nextOffset !== bakeSopOffset) {
+        setBakeSopOffset(nextOffset)
       } else {
-        setSopCandidates(prev => prev.map(item => item.id === id ? adopted : item))
+        await refreshSops(nextOffset)
       }
       setStatusMessage(`已采纳工作流程指导「${adopted.extractedProblem || adopted.sourceTitle || id}」`)
       await refreshOverview()
@@ -671,9 +653,9 @@ const BakePanel: React.FC = () => {
       if (nextOffset !== bakeSopOffset) {
         setBakeSopOffset(nextOffset)
       } else {
-        await refreshSops(nextOffset, sopBucket)
+        await refreshSops(nextOffset)
       }
-      setStatusMessage('已忽略待提炼操作手册')
+      setStatusMessage('已忽略操作手册')
       await refreshOverview()
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '忽略操作手册失败')
@@ -690,7 +672,7 @@ const BakePanel: React.FC = () => {
       if (nextOffset !== bakeSopOffset) {
         setBakeSopOffset(nextOffset)
       } else {
-        await refreshSops(nextOffset, sopBucket)
+        await refreshSops(nextOffset)
       }
       setStatusMessage('已删除操作手册')
       await refreshOverview()
@@ -844,7 +826,6 @@ const BakePanel: React.FC = () => {
         )}
         {bakeTab === 'sop' && (
           <BakeSopTab
-            bucket={sopBucket}
             candidates={sopCandidates}
             total={sopTotal}
             offset={bakeSopOffset}
@@ -852,9 +833,6 @@ const BakePanel: React.FC = () => {
             query={bakeSopQuery}
             selectedSopId={resolvedSopId}
             onSelectSop={setSelectedSopId}
-            onBucketChange={handleSopBucketChange}
-            onAdoptSop={handleAdoptSop}
-            onIgnoreSop={handleIgnoreSop}
             onDeleteSop={handleDeleteSop}
             onViewLinkedKnowledge={handleViewLinkedKnowledge}
             onCopySteps={(candidate: SopCandidate) => handleCopy(candidate.steps.map((step, idx) => `${idx + 1}. ${step}`).join('\n'), '已复制流程步骤')}

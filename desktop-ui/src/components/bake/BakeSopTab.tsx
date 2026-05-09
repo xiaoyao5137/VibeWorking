@@ -14,21 +14,8 @@ const statusLabel: Record<SopCandidate['status'], string> = {
   ignored: '已忽略',
 }
 
-const bucketMeta: Record<BakeBucket, { title: string; subtitle: string; empty: string }> = {
-  extracted: {
-    title: '已提炼',
-    subtitle: '按高频问题与已有知识沉淀可复用流程',
-    empty: '当前还没有已提炼操作手册。',
-  },
-  pending: {
-    title: '待提炼',
-    subtitle: '这里展示待确认候选，可决定采纳或忽略',
-    empty: '当前还没有待提炼操作手册候选。',
-  },
-}
 
 const BakeSopTab: React.FC<{
-  bucket: BakeBucket
   candidates: SopCandidate[]
   total: number
   limit: number
@@ -36,9 +23,6 @@ const BakeSopTab: React.FC<{
   query: string
   selectedSopId: string | null
   onSelectSop: (id: string | null) => void
-  onBucketChange: (bucket: BakeBucket) => void
-  onAdoptSop: (id: string) => void
-  onIgnoreSop: (id: string) => void
   onDeleteSop: (id: string) => void
   onCopySteps: (candidate: SopCandidate) => void
   onViewLinkedKnowledge: (knowledgeId: string) => void
@@ -46,7 +30,6 @@ const BakeSopTab: React.FC<{
   onLimitChange: (limit: number) => void
   onQueryChange: (query: string) => void
 }> = ({
-  bucket,
   candidates,
   total,
   limit,
@@ -54,9 +37,6 @@ const BakeSopTab: React.FC<{
   query,
   selectedSopId,
   onSelectSop,
-  onBucketChange,
-  onAdoptSop,
-  onIgnoreSop,
   onDeleteSop,
   onCopySteps,
   onViewLinkedKnowledge,
@@ -78,13 +58,6 @@ const BakeSopTab: React.FC<{
         />
         <div className="bake-list-toolbar">
           <div className="bake-list-toolbar__filters">
-            <label className="bake-form-field bake-filter-field">
-              <span className="bake-filter-label">分组</span>
-              <div className="bake-segmented-actions">
-                <BakeButton compact active={bucket === 'extracted'} onClick={() => onBucketChange('extracted')}>已提炼</BakeButton>
-                <BakeButton compact active={bucket === 'pending'} onClick={() => onBucketChange('pending')}>待提炼</BakeButton>
-              </div>
-            </label>
             <label className="bake-form-field bake-filter-field bake-filter-field--search">
               <span className="bake-filter-label">关键词</span>
               <input
@@ -104,7 +77,7 @@ const BakeSopTab: React.FC<{
         <BakeCard className="bake-knowledge-list-card">
         <div className="bake-list bake-knowledge-list">
           {candidates.length === 0 ? (
-            <div className="bake-muted">{query.trim() ? '当前筛选条件下没有操作手册。' : bucketMeta[bucket].empty}</div>
+            <div className="bake-muted">{query.trim() ? '当前筛选条件下没有操作手册。' : '当前还没有操作手册。'}</div>
           ) : candidates.map(item => (
             <button
               key={item.id}
@@ -173,7 +146,6 @@ const BakeSopTab: React.FC<{
                 <div className="bake-muted" style={{ marginTop: 4 }}>来源：{selected.sourceTitle || '—'} · 置信度：{confidenceLabel[selected.confidence]}</div>
               </div>
               <div className="bake-inline-pills">
-                <BakePill text={bucketMeta[bucket].title} />
                 <BakePill text={statusLabel[selected.status]} />
               </div>
             </div>
@@ -218,15 +190,7 @@ const BakeSopTab: React.FC<{
               )}
             </div>
             <div className="bake-actions--primary">
-              {bucket === 'pending' && (
-                <BakeButton primary onClick={() => onAdoptSop(selected.id)}>采纳为操作手册</BakeButton>
-              )}
-              {bucket === 'extracted' && (
-                <BakeButton primary onClick={() => onAdoptSop(selected.id)}>更新采纳状态</BakeButton>
-              )}
-              {bucket === 'pending'
-                ? <BakeButton onClick={() => onIgnoreSop(selected.id)}>忽略候选</BakeButton>
-                : <BakeButton onClick={() => onDeleteSop(selected.id)}>删除操作手册</BakeButton>}
+              <BakeButton onClick={() => onDeleteSop(selected.id)}>删除操作手册</BakeButton>
               <BakeButton compact onClick={() => onCopySteps(selected)}>复制流程</BakeButton>
             </div>
           </div>
