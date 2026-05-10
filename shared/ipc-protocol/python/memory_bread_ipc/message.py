@@ -57,6 +57,13 @@ class PiiScrubRequest(BaseModel):
     text:       str
 
 
+class ProfileAnalysisRequest(BaseModel):
+    type:             Literal["profile_analysis"] = "profile_analysis"
+    start_date:       str  # ISO8601 date
+    end_date:         str  # ISO8601 date
+    existing_profile: str | None = None
+
+
 class RagRequest(BaseModel):
     type:  Literal["rag"] = "rag"
     query: str
@@ -72,6 +79,7 @@ TaskRequest = Annotated[
         VlmRequest,
         EmbedRequest,
         PiiScrubRequest,
+        ProfileAnalysisRequest,
         RagRequest,
     ],
     Field(discriminator="type"),
@@ -156,6 +164,11 @@ class PiiScrubResult(BaseModel):
     redacted_types: list[str] = Field(default_factory=list)
 
 
+class ProfileAnalysisResult(BaseModel):
+    type:    Literal["profile_analysis"] = "profile_analysis"
+    profile: str  # JSON string
+
+
 class RagResult(BaseModel):
     type:     Literal["rag"] = "rag"
     answer:   str
@@ -171,6 +184,7 @@ ResultPayload = Annotated[
         VlmResult,
         EmbedResult,
         PiiScrubResult,
+        ProfileAnalysisResult,
         RagResult,
     ],
     Field(discriminator="type"),

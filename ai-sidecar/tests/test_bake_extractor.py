@@ -218,7 +218,7 @@ def test_extract_bake_bundle_returns_stage_timing_metadata():
         ),
         extractor,
     )
-    extractor.extract_bake_template = types.MethodType(
+    extractor.extract_bake_design = types.MethodType(
         lambda self, candidate: (
             {"accepted": True, "reason": None, "payload": {"name": "周报模板"}},
             {"usage": {"prompt_tokens": 3, "completion_tokens": 4}, "model": "mock-model", "degraded": False, "elapsed_ms": 22},
@@ -237,7 +237,7 @@ def test_extract_bake_bundle_returns_stage_timing_metadata():
 
     assert result["usage"] == {"prompt_tokens": 9, "completion_tokens": 12}
     assert result["degraded"] is True
-    assert result["stage_elapsed_ms"] == {"knowledge": 11, "template": 22, "sop": 33}
+    assert result["stage_elapsed_ms"] == {"knowledge": 11, "design": 22, "sop": 33}
     assert isinstance(result["total_elapsed_ms"], int)
     assert result["total_elapsed_ms"] >= 0
 
@@ -465,7 +465,7 @@ def test_build_bake_candidate_text_strips_score_metadata_from_details():
 
 
 
-def test_extract_bake_template_downgrades_sop_like_high_score_payload():
+def test_extract_bake_design_downgrades_sop_like_high_score_payload():
     extractor = make_extractor()
     sop_like_candidate = {
         **SAMPLE_CANDIDATE,
@@ -508,7 +508,7 @@ def test_extract_bake_template_downgrades_sop_like_high_score_payload():
         extractor,
     )
 
-    artifact, _ = extractor._extract_bake_artifact(sop_like_candidate, "template", "prompt")
+    artifact, _ = extractor._extract_bake_artifact(sop_like_candidate, "design", "prompt")
 
     assert artifact["accepted"] is True
     assert artifact["payload"]["match_level"] == "low"
@@ -561,5 +561,4 @@ def test_extract_bake_sop_downgrades_template_like_high_score_payload():
     assert artifact["payload"]["match_level"] == "low"
     assert artifact["payload"]["review_status"] == "candidate"
     assert artifact["payload"]["match_score"] <= 0.49
-
 

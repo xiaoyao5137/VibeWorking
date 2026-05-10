@@ -10,10 +10,62 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use image::{imageops::FilterType, DynamicImage};
 
 use super::CaptureError;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 截图熔断器（防止显卡驱动崩溃时持续重试）
+// ─────────────────────────────────────────────────────────────────────────────
+
+static SCREENSHOT_FAILURE_COUNT: AtomicU32 = AtomicU32::new(0);
+static LAST_FAILURE_RESET: AtomicU64 = AtomicU64::new(0);
+const MAX_CONSECUTIVE_FAILURES: u32 = 3;
+const FAILURE_RESET_WINDOW_SECS: u64 = 60;
+
+/// 检查截图熔断器状态
+fn check_screenshot_circuit_breaker() -> bool {
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let failure_count = SCREENSHOT_FAILURE_COUNT.load(Ordering::Relaxed);
+    let last_reset = LAST_FAILURE_RESET.load(Ordering::Relaxed);
+
+    // 超过重置窗口，重置计数器
+    if now_secs - last_reset > FAILURE_RESET_WINDOW_SECS {
+        SCREENSHOT_FAILURE_COUNT.store(0, Ordering::Relaxed);
+        LAST_FAILURE_RESET.store(now_secs, Ordering::Relaxed);
+        return true;
+    }
+
+    // 检查是否超过阈值
+    if failure_count >= MAX_CONSECUTIVE_FAILURES {
+        tracing::error!(
+            failure_count,
+            "截图熔断：连续失败 {} 次，暂停截图功能",
+            failure_count
+        );
+        return false;
+    }
+
+    true
+}
+
+/// 记录截图失败
+fn record_screenshot_failure() {
+    let count = SCREENSHOT_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    tracing::warn!("截图失败计数: {}/{}", count, MAX_CONSECUTIVE_FAILURES);
+}
+
+/// 重置截图失败计数
+fn reset_screenshot_failure() {
+    SCREENSHOT_FAILURE_COUNT.store(0, Ordering::Relaxed);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 公共类型
@@ -42,11 +94,16 @@ pub struct ScreenshotResult {
 
 /// 采集主显示器截图并以 JPEG 格式存储。
 ///
-/// 返回 `Ok(None)` 表示无可用显示器（无头服务器 / 测试环境）。
+/// 返回 `Ok(None)` 表示无可用显示器（无头服务器 / 测试环境）或熔断保护。
 pub fn capture_and_save(
     captures_dir: &Path,
     quality: u8,
 ) -> Result<Option<ScreenshotResult>, CaptureError> {
+    // 熔断检查（防止显卡驱动崩溃时持续重试）
+    if !check_screenshot_circuit_breaker() {
+        return Ok(None);
+    }
+
     #[cfg(not(test))]
     {
         capture_real(captures_dir, quality)
@@ -167,26 +224,18 @@ fn capture_real(
 
     // 采集所有显示器并水平拼接
     let mut combined_image: Option<DynamicImage> = None;
+    let mut all_failed = true;
 
     for (i, monitor) in monitors.iter().enumerate() {
-        // 添加重试机制，避免临时性显卡驱动错误
+        // 移除重试逻辑：失败时立即跳过，避免轰炸 WindowServer
         let rgba_image = match monitor.capture_image() {
-            Ok(img) => img,
+            Ok(img) => {
+                all_failed = false;
+                img
+            }
             Err(e) => {
-                tracing::warn!("显示器 {} 截图失败: {}，尝试重试", i, e);
-
-                // 等待 100ms 后重试一次
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                match monitor.capture_image() {
-                    Ok(img) => {
-                        tracing::info!("显示器 {} 重试成功", i);
-                        img
-                    }
-                    Err(e2) => {
-                        tracing::error!("显示器 {} 重试仍失败: {}", i, e2);
-                        continue;
-                    }
-                }
+                tracing::warn!("显示器 {} 截图失败: {}，跳过该显示器", i, e);
+                continue;
             }
         };
 
@@ -207,8 +256,17 @@ fn capture_real(
         });
     }
 
+    // 所有显示器都失败，触发熔断
+    if all_failed {
+        record_screenshot_failure();
+        return Ok(None);
+    }
+
     let combined_image = match combined_image {
-        Some(img) => img,
+        Some(img) => {
+            reset_screenshot_failure(); // 成功则重置计数器
+            img
+        }
         None => return Ok(None),
     };
 

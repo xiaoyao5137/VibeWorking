@@ -157,54 +157,6 @@ pub async fn list_knowledge(
     let result = state.storage.with_conn_async(move |conn| {
         let (entries, total) = if let Some(ref category) = params.category {
             match category.as_str() {
-                "bake_article" => {
-                    let mut stmt = conn.prepare(
-                        "SELECT b.id, b.timeline_id, b.summary, b.title, b.content, b.entities,
-                         b.importance, b.created_at, b.updated_at, b.created_at_ms, b.updated_at_ms
-                         FROM designs b
-                         ORDER BY b.created_at DESC LIMIT ?1 OFFSET ?2"
-                    ).map_err(|e| crate::storage::StorageError::Sqlite(e))?;
-
-                    let entries = stmt.query_map(rusqlite::params![params.limit, params.offset], |row: &rusqlite::Row| {
-                        let entities_json: String = row.get(5).unwrap_or_default();
-                        let entities: Vec<String> = serde_json::from_str(&entities_json).unwrap_or_default();
-                        Ok(KnowledgeEntry {
-                            id: row.get(0)?,
-                            capture_id: row.get(1)?,
-                            summary: row.get(2)?,
-                            overview: row.get::<_, Option<String>>(3).ok().flatten(),
-                            details: row.get::<_, Option<String>>(4).ok().flatten(),
-                            entities,
-                            category: "bake_article".to_string(),
-                            importance: row.get::<_, Option<i64>>(6)?.unwrap_or(3),
-                            occurrence_count: None,
-                            observed_at: None,
-                            event_time_start: None,
-                            event_time_end: None,
-                            history_view: false,
-                            content_origin: None,
-                            activity_type: None,
-                            is_self_generated: false,
-                            evidence_strength: None,
-                            user_verified: false,
-                            user_edited: false,
-                            created_at: row.get(7)?,
-                            updated_at: row.get(8)?,
-                            created_at_ms: row.get::<_, Option<i64>>(9)?.unwrap_or(0),
-                            updated_at_ms: row.get::<_, Option<i64>>(10)?.unwrap_or(0),
-                            capture_ids: None,
-                            key_timestamps: None,
-                        })
-                    })
-                    .map_err(|e| crate::storage::StorageError::Sqlite(e))?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
-
-                    let total: i64 = conn.query_row("SELECT COUNT(*) FROM designs", [], |row| row.get(0))
-                        .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
-
-                    (entries, total)
-                },
                 "bake_knowledge" => {
                     let mut stmt = conn.prepare(
                         "SELECT b.id, b.timeline_id, b.summary, b.title, b.content, b.entities,
@@ -461,16 +413,15 @@ pub async fn delete_knowledge(
                 .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
 
             if deleted == 0 {
-                // 尝试 bake 表
                 let deleted = conn
-                    .execute("DELETE FROM designs WHERE id = ?", [id])
+                    .execute("DELETE FROM bake_knowledge WHERE id = ?", [id])
                     .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
                 if deleted == 0 {
                     let deleted = conn
-                        .execute("DELETE FROM bake_knowledge WHERE id = ?", [id])
+                        .execute("DELETE FROM bake_sops WHERE id = ?", [id])
                         .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
                     if deleted == 0 {
-                        conn.execute("DELETE FROM bake_sops WHERE id = ?", [id])
+                        conn.execute("DELETE FROM bake_designs WHERE id = ?", [id])
                             .map_err(|e| crate::storage::StorageError::Sqlite(e))?;
                     }
                 }

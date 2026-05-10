@@ -4,54 +4,59 @@ use crate::storage::{
     db::current_ts_ms,
     error::StorageError,
     models_bake::{
-        BakeArticleRecord, BakeKnowledgeRecord, BakeMemorySourceRecord, BakeSopRecord,
-        EpisodicMemoryRecord, KnowledgeEntryRecord, NewBakeArticle, NewBakeKnowledge, NewBakeSop,
+        BakeDesignRecord, BakeKnowledgeRecord, BakeMemorySourceRecord, BakeSopRecord,
+        EpisodicMemoryRecord, KnowledgeEntryRecord, NewBakeKnowledge, NewBakeSop,
         NewEpisodicMemory, NewKnowledgeEntry,
     },
     StorageManager,
 };
 
 impl StorageManager {
-    pub fn get_design_templates(&self, limit: Option<usize>) -> Result<Vec<crate::storage::models_bake::BakeTemplateRecord>, StorageError> {
+    pub fn get_design_templates(&self, limit: Option<usize>) -> Result<Vec<BakeDesignRecord>, StorageError> {
         self.with_conn(|conn| {
             let lim = limit.unwrap_or(10);
             let mut stmt = conn.prepare(
-                "SELECT id, title, summary, content, design_type, status, tags,
-                        source_capture_ids, source_episode_ids, match_score, match_level,
-                        creation_mode, review_status, created_at, updated_at
+                "SELECT id, name, category, status, tags, applicable_tasks, source_memory_ids,
+                        source_capture_ids, source_episode_ids, linked_knowledge_ids,
+                        structure_sections, style_phrases, replacement_rules,
+                        prompt_hint, detailed_content, diagram_code, image_assets, usage_count,
+                        match_score, match_level, creation_mode, review_status,
+                        evidence_summary, generation_version, deleted_at,
+                        created_at, updated_at
                  FROM bake_designs
-                 WHERE deleted_at IS NULL AND status = 'active'
-                 ORDER BY match_score DESC
+                 WHERE deleted_at IS NULL AND status IN ('active', 'enabled')
+                 ORDER BY COALESCE(match_score, 0) DESC, updated_at DESC
                  LIMIT ?1"
             )?;
             let rows = stmt.query_map([lim], |row| {
-                Ok(crate::storage::models_bake::BakeTemplateRecord {
+                Ok(BakeDesignRecord {
                     id: row.get(0)?,
                     name: row.get(1)?,
-                    category: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-                    status: row.get(5)?,
-                    tags: row.get(6)?,
-                    applicable_tasks: "[]".to_string(),
-                    source_memory_ids: "[]".to_string(),
+                    category: row.get(2)?,
+                    status: row.get(3)?,
+                    tags: row.get(4)?,
+                    applicable_tasks: row.get(5)?,
+                    source_memory_ids: row.get(6)?,
                     source_capture_ids: row.get(7)?,
                     source_episode_ids: row.get(8)?,
-                    linked_knowledge_ids: "[]".to_string(),
-                    structure_sections: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                    style_phrases: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-                    replacement_rules: "[]".to_string(),
-                    prompt_hint: Some("".to_string()),
-                    diagram_code: None,
-                    image_assets: "[]".to_string(),
-                    usage_count: 0,
-                    match_score: row.get(9)?,
-                    match_level: row.get::<_, Option<String>>(10)?,
-                    creation_mode: row.get(11)?,
-                    review_status: row.get(12)?,
-                    evidence_summary: None,
-                    generation_version: None,
-                    deleted_at: None,
-                    created_at: row.get(13)?,
-                    updated_at: row.get(14)?,
+                    linked_knowledge_ids: row.get(9)?,
+                    structure_sections: row.get(10)?,
+                    style_phrases: row.get(11)?,
+                    replacement_rules: row.get(12)?,
+                    prompt_hint: row.get(13)?,
+                    detailed_content: row.get(14)?,
+                    diagram_code: row.get(15)?,
+                    image_assets: row.get(16)?,
+                    usage_count: row.get(17)?,
+                    match_score: row.get(18)?,
+                    match_level: row.get(19)?,
+                    creation_mode: row.get(20)?,
+                    review_status: row.get(21)?,
+                    evidence_summary: row.get(22)?,
+                    generation_version: row.get(23)?,
+                    deleted_at: row.get(24)?,
+                    created_at: row.get(25)?,
+                    updated_at: row.get(26)?,
                 })
             })?;
             rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -143,6 +148,7 @@ impl StorageManager {
                         summary: m.summary,
                         overview: m.overview,
                         details: m.details,
+                        detailed_content: m.detailed_content,
                         entities: m.entities,
                         category: m.category,
                         importance: m.importance,
@@ -183,6 +189,7 @@ impl StorageManager {
                         summary: k.summary,
                         overview: Some(k.title),
                         details: k.content,
+                        detailed_content: k.detailed_content,
                         entities: k.entities,
                         category: "bake_knowledge".to_string(),
                         importance: k.importance,
@@ -223,6 +230,7 @@ impl StorageManager {
                         summary: s.summary,
                         overview: Some(s.title),
                         details: s.content,
+                        detailed_content: s.detailed_content,
                         entities: s.entities,
                         category: "bake_sop".to_string(),
                         importance: s.importance,
@@ -264,6 +272,7 @@ impl StorageManager {
                         summary: m.summary,
                         overview: m.overview,
                         details: m.details,
+                        detailed_content: m.detailed_content,
                         entities: m.entities,
                         category: m.category,
                         importance: m.importance,
@@ -314,7 +323,7 @@ impl StorageManager {
                         k.created_at_ms, k.updated_at_ms, k.capture_ids, k.start_time, k.end_time, k.duration_minutes,
                         k.frag_app_name, k.frag_win_title, k.time_range_start, k.time_range_end, k.key_timestamps
                  FROM timelines k
-                 WHERE 1=1",
+                 WHERE k.is_self_generated = 0",
             );
             let mut bind_values: Vec<Box<dyn rusqlite::ToSql>> = vec![];
             if let Some(q) = query {
@@ -355,7 +364,7 @@ impl StorageManager {
             let mut sql = String::from(
                 "SELECT COUNT(*)
                  FROM timelines k
-                 WHERE 1=1",
+                 WHERE k.is_self_generated = 0",
             );
             let mut bind_values: Vec<Box<dyn rusqlite::ToSql>> = vec![];
             if let Some(q) = query {
@@ -396,6 +405,7 @@ impl StorageManager {
                 summary: k.summary,
                 overview: Some(k.title),
                 details: k.content,
+                detailed_content: k.detailed_content,
                 entities: k.entities,
                 category: "bake_knowledge".to_string(),
                 importance: k.importance,
@@ -616,43 +626,6 @@ impl StorageManager {
         &self,
         id: i64,
     ) -> Result<Option<KnowledgeEntryRecord>, StorageError> {
-        if let Some(article) = self.get_bake_article(id)? {
-            return Ok(Some(KnowledgeEntryRecord {
-                id: article.id,
-                capture_id: article.timeline_id,
-                summary: article.summary,
-                overview: Some(article.title),
-                details: article.content,
-                entities: article.entities,
-                category: "bake_article".to_string(),
-                importance: article.importance,
-                occurrence_count: None,
-                observed_at: None,
-                event_time_start: None,
-                event_time_end: None,
-                history_view: false,
-                content_origin: None,
-                activity_type: None,
-                is_self_generated: false,
-                evidence_strength: None,
-                user_verified: article.user_verified,
-                user_edited: article.user_edited,
-                created_at: article.created_at,
-                updated_at: article.updated_at,
-                created_at_ms: article.created_at_ms,
-                updated_at_ms: article.updated_at_ms,
-                capture_ids: None,
-                start_time: None,
-                end_time: None,
-                duration_minutes: None,
-                frag_app_name: None,
-                frag_win_title: None,
-                time_range_start: None,
-                time_range_end: None,
-                key_timestamps: None,
-            }));
-        }
-
         if let Some(knowledge) = self.get_bake_knowledge(id)? {
             return Ok(Some(KnowledgeEntryRecord {
                 id: knowledge.id,
@@ -660,6 +633,7 @@ impl StorageManager {
                 summary: knowledge.summary,
                 overview: Some(knowledge.title),
                 details: knowledge.content,
+                detailed_content: knowledge.detailed_content,
                 entities: knowledge.entities,
                 category: "bake_knowledge".to_string(),
                 importance: knowledge.importance,
@@ -697,6 +671,7 @@ impl StorageManager {
                 summary: sop.summary,
                 overview: Some(sop.title),
                 details: sop.content,
+                detailed_content: sop.detailed_content,
                 entities: sop.entities,
                 category: "bake_sop".to_string(),
                 importance: sop.importance,
@@ -734,6 +709,7 @@ impl StorageManager {
                 summary: memory.summary,
                 overview: memory.overview,
                 details: memory.details,
+                detailed_content: memory.detailed_content,
                 entities: memory.entities,
                 category: memory.category,
                 importance: memory.importance,
@@ -937,6 +913,7 @@ fn row_to_knowledge_entry(row: &rusqlite::Row<'_>) -> Result<KnowledgeEntryRecor
         summary: row.get(2)?,
         overview: row.get(3)?,
         details: row.get(4)?,
+        detailed_content: None,
         entities: row.get(5)?,
         category: row.get(6)?,
         importance: row.get::<_, Option<i64>>(7)?.unwrap_or(3),
@@ -977,6 +954,7 @@ fn row_to_episodic_memory_as_knowledge(
         summary: row.get(2)?,
         overview: row.get(3)?,
         details: row.get(4)?,
+        detailed_content: None,
         entities: row.get(5)?,
         category: row.get(6)?,
         importance: row.get::<_, Option<i64>>(7)?.unwrap_or(3),
@@ -1224,6 +1202,7 @@ fn row_to_episodic_memory(row: &rusqlite::Row<'_>) -> Result<EpisodicMemoryRecor
         summary: row.get(2)?,
         overview: row.get(3)?,
         details: row.get(4)?,
+        detailed_content: None,
         entities: row.get(5)?,
         category: row.get(6)?,
         importance: row.get::<_, Option<i64>>(7)?.unwrap_or(3),
@@ -1251,128 +1230,6 @@ fn row_to_episodic_memory(row: &rusqlite::Row<'_>) -> Result<EpisodicMemoryRecor
         time_range_start: None,
         time_range_end: None,
         key_timestamps: None,
-    })
-}
-
-// ============================================================================
-// Bake Articles 操作
-// ============================================================================
-
-impl StorageManager {
-    pub fn insert_bake_article(&self, article: &NewBakeArticle) -> Result<i64, StorageError> {
-        self.with_conn(|conn| {
-            let now = current_ts_ms();
-            conn.execute(
-                "INSERT INTO designs (
-                    timeline_id, title, summary, content, detailed_content, entities, importance,
-                    user_verified, user_edited,
-                    created_at, updated_at, created_at_ms, updated_at_ms, source_capture_ids
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0,
-                           datetime(?8 / 1000, 'unixepoch'), datetime(?8 / 1000, 'unixepoch'), ?8, ?8, ?9)",
-                params![
-                    article.timeline_id,
-                    article.title,
-                    article.summary,
-                    article.content,
-                    article.detailed_content,
-                    article.entities,
-                    article.importance,
-                    now,
-                    article.source_capture_ids,
-                ],
-            )?;
-            Ok(conn.last_insert_rowid())
-        })
-    }
-
-    pub fn list_designs_paginated(
-        &self,
-        limit: usize,
-        offset: usize,
-    ) -> Result<Vec<BakeArticleRecord>, StorageError> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                "SELECT id, timeline_id, title, summary, content, detailed_content, entities, importance,
-                        user_verified, user_edited, created_at, updated_at, created_at_ms, updated_at_ms, source_capture_ids
-                 FROM designs ORDER BY updated_at_ms DESC LIMIT ? OFFSET ?"
-            )?;
-            let rows = stmt.query_map(params![limit as i64, offset as i64], |row| {
-                Ok(row_to_bake_article(row).map_err(|_| rusqlite::Error::InvalidQuery)?)
-            })?;
-            rows.collect::<Result<Vec<_>, _>>().map_err(StorageError::Sqlite)
-        })
-    }
-
-    pub fn count_designs(&self) -> Result<i64, StorageError> {
-        self.with_conn(|conn| {
-            conn.query_row("SELECT COUNT(*) FROM designs", [], |row| row.get(0))
-                .map_err(StorageError::Sqlite)
-        })
-    }
-
-    pub fn get_bake_article(&self, id: i64) -> Result<Option<BakeArticleRecord>, StorageError> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                "SELECT id, timeline_id, title, summary, content, detailed_content, entities, importance,
-                        user_verified, user_edited, created_at, updated_at, created_at_ms, updated_at_ms, source_capture_ids
-                 FROM designs WHERE id = ?1"
-            )?;
-            match stmt.query_row(params![id], |row| {
-                row_to_bake_article(row).map_err(|_| rusqlite::Error::InvalidQuery)
-            }) {
-                Ok(article) => Ok(Some(article)),
-                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-                Err(e) => Err(StorageError::Sqlite(e)),
-            }
-        })
-    }
-
-    pub fn update_bake_article(
-        &self,
-        id: i64,
-        title: &str,
-        summary: &str,
-        content: Option<&str>,
-        entities: &str,
-    ) -> Result<bool, StorageError> {
-        self.with_conn(|conn| {
-            let now = current_ts_ms();
-            let affected = conn.execute(
-                "UPDATE designs
-                 SET title = ?1, summary = ?2, content = ?3, entities = ?4, user_edited = 1,
-                     updated_at = datetime(?6 / 1000, 'unixepoch'), updated_at_ms = ?6
-                 WHERE id = ?5",
-                params![title, summary, content, entities, id, now],
-            )?;
-            Ok(affected > 0)
-        })
-    }
-
-    pub fn delete_bake_article(&self, id: i64) -> Result<bool, StorageError> {
-        self.with_conn(|conn| {
-            let affected = conn.execute("DELETE FROM designs WHERE id = ?1", params![id])?;
-            Ok(affected > 0)
-        })
-    }
-}
-
-fn row_to_bake_article(row: &rusqlite::Row<'_>) -> Result<BakeArticleRecord, StorageError> {
-    Ok(BakeArticleRecord {
-        id: row.get(0)?,
-        timeline_id: row.get(1)?,
-        title: row.get(2)?,
-        summary: row.get(3)?,
-        content: row.get(4)?,
-        detailed_content: row.get(5)?,
-        entities: row.get(6)?,
-        importance: row.get::<_, Option<i64>>(7)?.unwrap_or(3),
-        user_verified: row.get::<_, Option<bool>>(8)?.unwrap_or(false),
-        user_edited: row.get::<_, Option<bool>>(9)?.unwrap_or(false),
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
-        created_at_ms: row.get::<_, Option<i64>>(12)?.unwrap_or(0),
-        updated_at_ms: row.get::<_, Option<i64>>(13)?.unwrap_or(0),
-        source_capture_ids: row.get(14)?,
     })
 }
 
@@ -1648,6 +1505,15 @@ mod tests {
             activity_type: Some("support".to_string()),
             is_self_generated: false,
             evidence_strength: Some("high".to_string()),
+            capture_ids: None,
+            start_time: None,
+            end_time: None,
+            duration_minutes: None,
+            frag_app_name: None,
+            frag_win_title: None,
+            time_range_start: None,
+            time_range_end: None,
+            key_timestamps: None,
         }
     }
 
@@ -1728,8 +1594,10 @@ mod tests {
                 title: "原始 SOP".to_string(),
                 summary: "原始 SOP".to_string(),
                 content: Some(r#"{"status":"candidate"}"#.to_string()),
+                detailed_content: None,
                 entities: r#"["SOP"]"#.to_string(),
                 importance: 4,
+                source_capture_ids: None,
             })
             .unwrap();
 

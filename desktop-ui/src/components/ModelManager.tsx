@@ -16,17 +16,19 @@ type OllamaSetupDetail = {
 }
 
 const PROVIDER_LABEL: Record<string, string> = {
-  ollama: 'Ollama', huggingface: 'HuggingFace',
+  ollama: '本地模型', huggingface: 'HuggingFace',
   openai: 'OpenAI', anthropic: 'Anthropic',
   tongyi: '通义千问', doubao: '豆包', deepseek: 'DeepSeek', kimi: 'Kimi',
+  google: 'Google', kling: '可灵',
 }
 const PROVIDER_COLOR: Record<string, string> = {
   ollama: '#007AFF', huggingface: '#FF9500',
   openai: '#34C759', anthropic: '#AF52DE',
   tongyi: '#FF6B35', doubao: '#1677FF', deepseek: '#06B6D4', kimi: '#8B5CF6',
+  google: '#4285F4', kling: '#FF2D55',
 }
 const CATEGORY_LABEL: Record<string, string> = {
-  llm: 'LLM', embedding: '向量模型', ocr: 'OCR', asr: '语音识别', vlm: '视觉模型',
+  llm: 'LLM', embedding: '向量模型', image: '生图模型', ocr: 'OCR', asr: '语音识别', vlm: '视觉模型',
 }
 const STATUS_COLOR: Record<string, string> = {
   not_installed: '#AEAEB2', downloading: '#FF9500', loading: '#FF9500',
@@ -238,10 +240,10 @@ const ModelCard: React.FC<{
 }
 
 // ── 主组件 ────────────────────────────────────────────────────────────────────
-type TabType = 'local' | 'quantized' | 'api'
+type TabType = 'llm' | 'embedding' | 'image'
 
 const ModelManager: React.FC = () => {
-  const [tab, setTab] = useState<TabType>('local')
+  const [tab, setTab] = useState<TabType>('llm')
   const [models, setModels] = useState<ModelEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [configuringModel, setConfiguringModel] = useState<ModelEntry | null>(null)
@@ -426,10 +428,8 @@ const ModelManager: React.FC = () => {
 
   // 按 tab 过滤
   const filtered = models.filter(m => {
-    if (tab === 'local') return m.provider === 'ollama' || m.category === 'inference_engine'
-    if (tab === 'quantized') return m.provider === 'huggingface'
-    if (tab === 'api') return !['ollama', 'huggingface'].includes(m.provider) && m.category !== 'inference_engine'
-    return true
+    if (m.category === 'inference_engine') return tab === 'llm'
+    return m.category === tab
   })
 
   // 按 category 分组
@@ -477,9 +477,9 @@ const ModelManager: React.FC = () => {
       {/* Tab 切换 */}
       <div style={{ display: 'flex', gap: 4, padding: '10px 14px 0' }}>
         {([
-          { key: 'local', label: '本地模型' },
-          { key: 'quantized', label: '量化模型' },
-          { key: 'api', label: '商业 API' },
+          { key: 'llm', label: '对话模型' },
+          { key: 'embedding', label: '向量模型' },
+          { key: 'image', label: '生图模型' },
         ] as { key: TabType; label: string }[]).map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
             fontSize: 12, padding: '5px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
@@ -496,75 +496,11 @@ const ModelManager: React.FC = () => {
 
       {/* 内容区 */}
       <div style={{ flex: 1, overflow: 'auto', padding: '10px 14px 14px' }}>
-        {tab === 'local' && (
-          <div style={{ background: 'white', borderRadius: 10, padding: 12, border: '1px solid rgba(0,0,0,0.07)', marginBottom: 10 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Ollama 运行环境</div>
-            {ollamaChecking ? (
-              <div style={{ fontSize: 12, color: '#AEAEB2' }}>检测中...</div>
-            ) : (
-              <>
-                <div style={{ fontSize: 12, color: ollamaSetup?.ollama_running ? '#34C759' : '#6E6E73', marginBottom: 4 }}>
-                  {ollamaSetup?.message || '无法获取 Ollama 状态'}
-                </div>
-                {(ollamaSetup?.system_version || ollamaSetup?.arch || ollamaSetup?.ollama_version) && (
-                  <div style={{ fontSize: 11, color: '#8E8E93', marginBottom: 8 }}>
-                    macOS {ollamaSetup?.system_version || 'unknown'} · {ollamaSetup?.arch || 'unknown'}
-                    {ollamaSetup?.ollama_version && ` · Ollama v${ollamaSetup.ollama_version}`}
-                  </div>
-                )}
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={refreshOllamaSetup} style={btn('#F2F2F7', '#333', 11)}>重新检测</button>
-                  {ollamaSetup?.ollama_installed && ollamaSetup?.brew_available && (
-                    <button onClick={handleUpgrade} disabled={ollamaUpgrading} style={btn('#007AFF', 'white', 11)}>
-                      {ollamaUpgrading ? '升级中...' : '更新 Ollama'}
-                    </button>
-                  )}
-                  {!ollamaSetup?.ollama_running && (
-                    <button
-                      onClick={handleInstallOllama}
-                      disabled={ollamaInstalling}
-                      style={btn('#007AFF', 'white', 11)}
-                    >
-                      {ollamaInstalling ? '安装中...' : '检测并安装 Ollama'}
-                    </button>
-                  )}
-                </div>
-                {ollamaSetup?.recommended_install_method && !ollamaSetup?.ollama_running && (
-                  <div style={{ fontSize: 11, color: '#8E8E93', marginTop: 6 }}>
-                    推荐命令：{ollamaSetup.recommended_install_method}
-                  </div>
-                )}
-                {ollamaError && <div style={{ fontSize: 11, color: '#FF3B30', marginTop: 6 }}>{ollamaError}</div>}
-              </>
-            )}
-          </div>
-        )}
-
         {loading && models.length === 0 && (
           <div style={{ textAlign: 'center', color: '#AEAEB2', fontSize: 13, padding: 40 }}>加载中...</div>
         )}
 
-        {tab !== 'api' && Object.entries(grouped).map(([category, items]) => (
-          <div key={category} style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#6E6E73', marginBottom: 6, textTransform: 'uppercase' }}>
-              {CATEGORY_LABEL[category] || category}
-            </div>
-            {items.map(m => (
-              <ModelCard
-                key={m.id} model={m}
-                downloading={downloadingIds.has(m.id)}
-                activating={activatingIds.has(m.id)}
-                onDownload={() => handleDownload(m)}
-                onActivate={() => handleActivate(m)}
-                onDelete={() => handleDelete(m)}
-                onConfigure={() => setConfiguringModel(m)}
-                onUpgrade={m.category === 'inference_engine' ? handleUpgrade : undefined}
-              />
-            ))}
-          </div>
-        ))}
-
-        {tab === 'api' && Object.entries(byProvider).map(([provider, items]) => (
+        {Object.entries(byProvider).map(([provider, items]) => (
           <div key={provider} style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
               <span style={{
@@ -575,15 +511,61 @@ const ModelManager: React.FC = () => {
                 {PROVIDER_LABEL[provider] || provider}
               </span>
             </div>
-            {items.map(m => (
+
+            {/* Ollama 运行环境信息 */}
+            {provider === 'ollama' && tab === 'llm' && (
+              <div style={{ background: 'white', borderRadius: 10, padding: 12, border: '1px solid rgba(0,0,0,0.07)', marginBottom: 8 }}>
+                {ollamaChecking ? (
+                  <div style={{ fontSize: 12, color: '#AEAEB2' }}>检测中...</div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12, color: ollamaSetup?.ollama_running ? '#34C759' : '#6E6E73', marginBottom: 4 }}>
+                      {ollamaSetup?.message || '无法获取 Ollama 状态'}
+                    </div>
+                    {(ollamaSetup?.system_version || ollamaSetup?.arch || ollamaSetup?.ollama_version) && (
+                      <div style={{ fontSize: 11, color: '#8E8E93', marginBottom: 8 }}>
+                        macOS {ollamaSetup?.system_version || 'unknown'} · {ollamaSetup?.arch || 'unknown'}
+                        {ollamaSetup?.ollama_version && ` · Ollama v${ollamaSetup.ollama_version}`}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={refreshOllamaSetup} style={btn('#F2F2F7', '#333', 11)}>重新检测</button>
+                      {ollamaSetup?.ollama_installed && ollamaSetup?.brew_available && (
+                        <button onClick={handleUpgrade} disabled={ollamaUpgrading} style={btn('#007AFF', 'white', 11)}>
+                          {ollamaUpgrading ? '升级中...' : '更新 Ollama'}
+                        </button>
+                      )}
+                      {!ollamaSetup?.ollama_running && (
+                        <button
+                          onClick={handleInstallOllama}
+                          disabled={ollamaInstalling}
+                          style={btn('#007AFF', 'white', 11)}
+                        >
+                          {ollamaInstalling ? '安装中...' : '检测并安装 Ollama'}
+                        </button>
+                      )}
+                    </div>
+                    {ollamaSetup?.recommended_install_method && !ollamaSetup?.ollama_running && (
+                      <div style={{ fontSize: 11, color: '#8E8E93', marginTop: 6 }}>
+                        推荐命令：{ollamaSetup.recommended_install_method}
+                      </div>
+                    )}
+                    {ollamaError && <div style={{ fontSize: 11, color: '#FF3B30', marginTop: 6 }}>{ollamaError}</div>}
+                  </>
+                )}
+              </div>
+            )}
+
+            {items.filter(m => m.category !== 'inference_engine').map(m => (
               <ModelCard
                 key={m.id} model={m}
-                downloading={false}
+                downloading={downloadingIds.has(m.id)}
                 activating={activatingIds.has(m.id)}
-                onDownload={() => {}}
+                onDownload={() => handleDownload(m)}
                 onActivate={() => handleActivate(m)}
-                onDelete={() => {}}
+                onDelete={() => handleDelete(m)}
                 onConfigure={() => setConfiguringModel(m)}
+                onUpgrade={m.category === 'inference_engine' ? handleUpgrade : undefined}
               />
             ))}
           </div>

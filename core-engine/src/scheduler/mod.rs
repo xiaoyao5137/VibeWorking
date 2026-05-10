@@ -6,7 +6,9 @@
 //! 3. 提供增删改查接口供 API handler 调用
 
 pub mod models;
+pub mod profile_task;
 pub mod repo;
 pub mod runner;
 
+pub use profile_task::ProfileAnalyzer;
 pub use runner::Scheduler;

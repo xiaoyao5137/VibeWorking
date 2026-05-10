@@ -21,8 +21,8 @@ class ApiKeyField:
 class ModelMeta:
     id:               str
     name:             str
-    category:         str          # llm | embedding | ocr | asr | vlm
-    provider:         str          # ollama | huggingface | openai | anthropic | tongyi | doubao | deepseek | kimi
+    category:         str          # llm | embedding | ocr | asr | vlm | image
+    provider:         str          # ollama | huggingface | openai | anthropic | tongyi | doubao | deepseek | kimi | kling
     size_gb:          float
     description:      str
     is_default:       bool = False
@@ -88,16 +88,16 @@ AVAILABLE_MODELS: List[ModelMeta] = [
 
     # ── 本地 Embedding（Ollama）──────────────────────────────────────────────
     ModelMeta(
-        id="bge-m3", name="BGE-M3", category="embedding", provider="ollama",
-        size_gb=0.6, min_memory_gb=2.0, is_default=True,
-        description="BAAI BGE-M3，多语言向量模型，中英文效果优秀",
-        tags=["推荐", "多语言"],
+        id="bge-small-zh", name="BGE-Small-ZH-Q4", category="embedding", provider="ollama",
+        size_gb=0.05, min_memory_gb=1.0, is_default=True,
+        description="BAAI BGE-Small 中文版，512 维，量化版本，内存占用低",
+        tags=["推荐", "超轻量", "中文"],
     ),
     ModelMeta(
-        id="bge-small-zh", name="BGE-Small-ZH", category="embedding", provider="ollama",
-        size_gb=0.1, min_memory_gb=1.0,
-        description="BAAI BGE-Small 中文版，极小体积，适合低配机器",
-        tags=["超轻量", "中文"],
+        id="bge-m3", name="BGE-M3", category="embedding", provider="ollama",
+        size_gb=0.6, min_memory_gb=2.0, is_default=False,
+        description="BAAI BGE-M3，多语言向量模型，中英文效果优秀",
+        tags=["多语言"],
     ),
     ModelMeta(
         id="nomic-embed-text", name="Nomic Embed Text", category="embedding", provider="ollama",
@@ -108,13 +108,23 @@ AVAILABLE_MODELS: List[ModelMeta] = [
 
     # ── 商业 LLM：OpenAI ─────────────────────────────────────────────────────
     ModelMeta(
+        id="gpt-5.5", name="GPT-5.5", category="llm", provider="openai",
+        size_gb=0.0, min_memory_gb=0.0, requires_api_key=True,
+        description="OpenAI GPT-5.5，最新旗舰模型，推理和创作能力大幅提升",
+        tags=["最新", "高质量", "多模态"],
+        api_key_fields=[
+            ApiKeyField("api_key", "API Key", "sk-...", required=True, secret=True),
+            ApiKeyField("base_url", "Base URL（可选）", "https://api.openai.com/v1", required=False, secret=False),
+        ],
+    ),
+    ModelMeta(
         id="gpt-4o", name="GPT-4o", category="llm", provider="openai",
         size_gb=0.0, min_memory_gb=0.0, requires_api_key=True,
-        description="OpenAI GPT-4o，最强多模态模型，按 token 计费",
+        description="OpenAI GPT-4o，强大多模态模型，按 token 计费",
         tags=["高质量", "多模态"],
         api_key_fields=[
             ApiKeyField("api_key", "API Key", "sk-...", required=True, secret=True),
-            ApiKeyField("base_url", "Base URL（可选，用于代理）", "https://api.openai.com/v1", required=False, secret=False),
+            ApiKeyField("base_url", "Base URL（可选）", "https://api.openai.com/v1", required=False, secret=False),
         ],
     ),
     ModelMeta(
@@ -202,6 +212,15 @@ AVAILABLE_MODELS: List[ModelMeta] = [
 
     # ── 商业 LLM：Kimi ───────────────────────────────────────────────────────
     ModelMeta(
+        id="kimi-2.5", name="Kimi 2.5", category="llm", provider="kimi",
+        size_gb=0.0, min_memory_gb=0.0, requires_api_key=True,
+        description="月之暗面 Kimi 2.5，最新版本，长文本理解能力更强，国内访问稳定",
+        tags=["最新", "长上下文", "国内"],
+        api_key_fields=[
+            ApiKeyField("api_key", "API Key", "sk-...", required=True, secret=True),
+        ],
+    ),
+    ModelMeta(
         id="moonshot-v1-8k", name="Kimi moonshot-v1-8k", category="llm", provider="kimi",
         size_gb=0.0, min_memory_gb=0.0, requires_api_key=True,
         description="月之暗面 Kimi，长文本理解能力强，国内访问稳定",
@@ -220,6 +239,55 @@ AVAILABLE_MODELS: List[ModelMeta] = [
         api_key_fields=[
             ApiKeyField("api_key", "API Key", "sk-...", required=True, secret=True),
             ApiKeyField("base_url", "Base URL（可选）", "https://api.openai.com/v1", required=False, secret=False),
+        ],
+    ),
+
+    # ── 生图模型 ─────────────────────────────────────────────────────────────
+    ModelMeta(
+        id="dall-e-3", name="DALL·E 3", category="image", provider="openai",
+        size_gb=0.0, min_memory_gb=0.0, requires_api_key=True,
+        description="OpenAI DALL·E 3，高质量文生图模型，支持详细提示词",
+        tags=["文生图", "高质量"],
+        api_key_fields=[
+            ApiKeyField("api_key", "API Key", "sk-...", required=True, secret=True),
+            ApiKeyField("base_url", "Base URL（可选）", "https://api.openai.com/v1", required=False, secret=False),
+        ],
+    ),
+    ModelMeta(
+        id="gpt-image-2", name="GPT Image 2", category="image", provider="openai",
+        size_gb=0.0, min_memory_gb=0.0, requires_api_key=True,
+        description="OpenAI GPT Image 2，最新图像生成模型，理解能力更强",
+        tags=["最新", "文生图", "高质量"],
+        api_key_fields=[
+            ApiKeyField("api_key", "API Key", "sk-...", required=True, secret=True),
+            ApiKeyField("base_url", "Base URL（可选）", "https://api.openai.com/v1", required=False, secret=False),
+        ],
+    ),
+    ModelMeta(
+        id="gemini-nano-banana", name="Gemini Nano Banana", category="image", provider="google",
+        size_gb=0.0, min_memory_gb=0.0, requires_api_key=True,
+        description="Google Gemini Nano Banana，轻量级图像生成模型，速度快",
+        tags=["文生图", "快速"],
+        api_key_fields=[
+            ApiKeyField("api_key", "API Key", "...", required=True, secret=True),
+        ],
+    ),
+    ModelMeta(
+        id="qwen-image-edit", name="Qwen Image Edit", category="image", provider="tongyi",
+        size_gb=0.0, min_memory_gb=0.0, requires_api_key=True,
+        description="阿里通义千问图像编辑模型，支持图像编辑和修复",
+        tags=["图像编辑", "中文优化", "国内"],
+        api_key_fields=[
+            ApiKeyField("api_key", "API Key", "sk-...", required=True, secret=True),
+        ],
+    ),
+    ModelMeta(
+        id="kling-v1", name="可灵 v1", category="image", provider="kling",
+        size_gb=0.0, min_memory_gb=0.0, requires_api_key=True,
+        description="快手可灵 AI，文生图/视频模型，中文理解能力强，国内访问稳定",
+        tags=["文生图", "视频生成", "中文优化", "国内"],
+        api_key_fields=[
+            ApiKeyField("api_key", "API Key", "...", required=True, secret=True),
         ],
     ),
 ]

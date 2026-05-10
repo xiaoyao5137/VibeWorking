@@ -305,6 +305,66 @@ const RepositoryPanel: React.FC = () => {
         ))}
       </section>
 
+      {repositoryTab === 'memory' && (
+        <>
+          <form
+            className="bake-list-toolbar bake-list-toolbar--repository"
+            onSubmit={(event) => {
+              event.preventDefault()
+              handleSearchMemories()
+            }}
+          >
+            <div className="bake-list-toolbar__repository">
+              <div className="bake-list-toolbar__repository-row bake-list-toolbar__repository-row--search">
+                <label className="bake-form-field bake-filter-field bake-filter-field--search">
+                  <span className="bake-filter-label">关键词</span>
+                  <input
+                    className="bake-input"
+                    value={draftMemoryQuery}
+                    onChange={(event) => setDraftMemoryQuery(event.target.value)}
+                    placeholder="搜索时间线标题、摘要或详情"
+                  />
+                </label>
+                <div className="bake-list-toolbar__repository-actions bake-list-toolbar__repository-actions--search">
+                  <BakeButton compact primary type="submit">搜索</BakeButton>
+                </div>
+              </div>
+              <div className="bake-list-toolbar__repository-row bake-list-toolbar__repository-row--dates">
+                <label className="bake-form-field bake-filter-field">
+                  <span className="bake-filter-label">开始日期</span>
+                  <input
+                    className="bake-input"
+                    type="date"
+                    value={draftMemoryFrom}
+                    onChange={(event) => setDraftMemoryFrom(event.target.value)}
+                  />
+                </label>
+                <label className="bake-form-field bake-filter-field">
+                  <span className="bake-filter-label">结束日期</span>
+                  <input
+                    className="bake-input"
+                    type="date"
+                    value={draftMemoryTo}
+                    onChange={(event) => setDraftMemoryTo(event.target.value)}
+                  />
+                </label>
+                <div className="bake-list-toolbar__repository-actions bake-list-toolbar__repository-actions--secondary">
+                  {(draftMemoryQuery || draftMemoryFrom || draftMemoryTo || repositoryMemoryQuery || repositoryMemoryFrom || repositoryMemoryTo) && (
+                    <BakeButton compact onClick={handleClearMemoryFilters}>清除筛选</BakeButton>
+                  )}
+                </div>
+              </div>
+            </div>
+          </form>
+
+          {memoryFilterPills.length > 0 && (
+            <div className="bake-filter-summary">
+              {memoryFilterPills.map(item => <BakePill key={item} text={item} />)}
+            </div>
+          )}
+        </>
+      )}
+
       <div className="bake-tab-content">
         {repositoryTab === 'memory' && (
           <div className="bake-split-list-detail bake-split-list-detail--memories-fixed">
@@ -313,62 +373,6 @@ const RepositoryPanel: React.FC = () => {
                 title="时间线"
                 subtitle="只做浏览与回溯，不在这里执行提炼动作"
               />
-
-              <form
-                className="bake-list-toolbar bake-list-toolbar--repository"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  handleSearchMemories()
-                }}
-              >
-                <div className="bake-list-toolbar__repository">
-                  <div className="bake-list-toolbar__repository-row bake-list-toolbar__repository-row--search">
-                    <label className="bake-form-field bake-filter-field bake-filter-field--search">
-                      <span className="bake-filter-label">关键词</span>
-                      <input
-                        className="bake-input"
-                        value={draftMemoryQuery}
-                        onChange={(event) => setDraftMemoryQuery(event.target.value)}
-                        placeholder="搜索时间线标题、摘要或详情"
-                      />
-                    </label>
-                    <div className="bake-list-toolbar__repository-actions bake-list-toolbar__repository-actions--search">
-                      <BakeButton compact primary type="submit">搜索</BakeButton>
-                    </div>
-                  </div>
-                  <div className="bake-list-toolbar__repository-row bake-list-toolbar__repository-row--dates">
-                    <label className="bake-form-field bake-filter-field">
-                      <span className="bake-filter-label">开始日期</span>
-                      <input
-                        className="bake-input"
-                        type="date"
-                        value={draftMemoryFrom}
-                        onChange={(event) => setDraftMemoryFrom(event.target.value)}
-                      />
-                    </label>
-                    <label className="bake-form-field bake-filter-field">
-                      <span className="bake-filter-label">结束日期</span>
-                      <input
-                        className="bake-input"
-                        type="date"
-                        value={draftMemoryTo}
-                        onChange={(event) => setDraftMemoryTo(event.target.value)}
-                      />
-                    </label>
-                    <div className="bake-list-toolbar__repository-actions bake-list-toolbar__repository-actions--secondary">
-                      {(draftMemoryQuery || draftMemoryFrom || draftMemoryTo || repositoryMemoryQuery || repositoryMemoryFrom || repositoryMemoryTo) && (
-                        <BakeButton compact onClick={handleClearMemoryFilters}>清除筛选</BakeButton>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </form>
-
-              {memoryFilterPills.length > 0 && (
-                <div className="bake-filter-summary">
-                  {memoryFilterPills.map(item => <BakePill key={item} text={item} />)}
-                </div>
-              )}
 
               {memories.length === 0 ? (
                 <div className="bake-muted">当前筛选条件下没有可浏览的时间线。</div>
@@ -455,7 +459,7 @@ const RepositoryPanel: React.FC = () => {
                     <div className="bake-inline-meta">
                       <div style={{ minWidth: 0 }}>
                         <div className="bake-title" style={{ fontSize: 20, lineHeight: 1.4 }}>{selectedMemory.title}</div>
-                        <div className="bake-muted bake-line-clamp-1" style={{ marginTop: 6 }}>{selectedMemory.url || `片段 #${selectedMemory.sourceCaptureId || '—'}`}</div>
+                        <div className="bake-muted bake-line-clamp-1" style={{ marginTop: 6 }}>{selectedMemory.url || `时间线 #${selectedMemory.id || '—'}`}</div>
                       </div>
                       <BakePill text="时间线浏览" />
                     </div>

@@ -33,6 +33,7 @@ pub use message::{
     IpcRequest, IpcResponse,
     OcrRequest, OcrResult,
     PiiScrubRequest, PiiScrubResult,
+    ProfileAnalysisRequest, ProfileAnalysisResult,
     ResultPayload, TaskRequest,
     VlmRequest, VlmResult,
 };

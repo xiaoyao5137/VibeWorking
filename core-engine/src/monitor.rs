@@ -40,13 +40,8 @@ impl ResourceMonitor {
             ticker.tick().await;
             sys.refresh_all();
 
-            let total_mem_mb = sys.total_memory() / 1024 / 1024;
-            let used_mem_mb = sys.used_memory() / 1024 / 1024;
-            let mem_percent = if total_mem_mb > 0 {
-                used_mem_mb as f64 / total_mem_mb as f64 * 100.0
-            } else {
-                0.0
-            };
+            // 使用 vm_stat 获取真实内存（包含压缩内存）
+            let mem_percent = get_real_memory_usage();
 
             let mut cpu_process: f64 = 0.0;
             let mut mem_process_mb: u64 = 0;
@@ -61,12 +56,6 @@ impl ResourceMonitor {
             // 全局 CPU（所有核平均）
             let cpu_total: f64 = sys.cpus().iter().map(|c| c.cpu_usage() as f64).sum::<f64>()
                 / sys.cpus().len().max(1) as f64;
-
-            let _gpu_name = std::env::var("WORKBUDDY_GPU_NAME").ok();
-            let _gpu_percent = std::env::var("WORKBUDDY_GPU_PERCENT")
-                .ok()
-                .and_then(|v| v.parse::<f64>().ok())
-                .unwrap_or(0.0);
 
             // CPU 过高：暂停采集 30 秒
             if cpu_process as f32 > self.cpu_threshold {
@@ -87,4 +76,58 @@ impl ResourceMonitor {
             );
         }
     }
+}
+
+/// 获取真实内存使用率（包含压缩内存）
+#[cfg(target_os = "macos")]
+fn get_real_memory_usage() -> f64 {
+    use std::process::Command;
+
+    let output = match Command::new("vm_stat").output() {
+        Ok(o) => o,
+        Err(_) => return 0.0,
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let mut pages_active = 0u64;
+    let mut pages_wired = 0u64;
+    let mut pages_compressed = 0u64;
+    let mut pages_free = 0u64;
+    let mut pages_inactive = 0u64;
+
+    for line in stdout.lines() {
+        if line.starts_with("Pages active:") {
+            pages_active = parse_vm_value(line);
+        } else if line.starts_with("Pages wired down:") {
+            pages_wired = parse_vm_value(line);
+        } else if line.starts_with("Pages stored in compressor:") {
+            pages_compressed = parse_vm_value(line);
+        } else if line.starts_with("Pages free:") {
+            pages_free = parse_vm_value(line);
+        } else if line.starts_with("Pages inactive:") {
+            pages_inactive = parse_vm_value(line);
+        }
+    }
+
+    let total = pages_active + pages_wired + pages_free + pages_inactive;
+    if total == 0 {
+        return 0.0;
+    }
+
+    // macOS 内存模型：compressed 是从 inactive 压缩出来的，不应重复计入
+    let used = pages_active + pages_wired;
+    (used as f64 / total as f64) * 100.0
+}
+
+#[cfg(not(target_os = "macos"))]
+fn get_real_memory_usage() -> f64 {
+    0.0
+}
+
+fn parse_vm_value(line: &str) -> u64 {
+    line.split(':')
+        .nth(1)
+        .and_then(|s| s.trim().trim_end_matches('.').parse().ok())
+        .unwrap_or(0)
 }

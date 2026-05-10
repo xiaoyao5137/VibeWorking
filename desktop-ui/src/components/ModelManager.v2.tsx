@@ -15,9 +15,9 @@ import './ModelManager.v2.css'
 interface Model {
   id: string
   name: string
-  type: 'llm' | 'embedding'
+  category: 'llm' | 'embedding' | 'image'
   provider: string
-  model_id: string
+  model_id?: string
   size_gb: number
   description: string
   status: 'not_installed' | 'downloading' | 'loading' | 'installed' | 'active'
@@ -31,7 +31,7 @@ const ModelManager: React.FC = () => {
   const [models, setModels] = useState<Model[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedTab, setSelectedTab] = useState<'llm' | 'embedding'>('llm')
+  const [selectedTab, setSelectedTab] = useState<'llm' | 'embedding' | 'image'>('llm')
   const [showApiKeyDialog, setShowApiKeyDialog] = useState(false)
   const [apiKey, setApiKey] = useState('')
   const [selectedProvider, setSelectedProvider] = useState('')
@@ -70,7 +70,7 @@ const ModelManager: React.FC = () => {
       {
         id: 'qwen2.5-3b',
         name: 'Qwen2.5-3B-INT8',
-        type: 'llm',
+        category: 'llm',
         provider: 'ollama',
         model_id: 'qwen2.5:3b-instruct-q8_0',
         size_gb: 2.5,
@@ -83,7 +83,7 @@ const ModelManager: React.FC = () => {
       {
         id: 'qwen2.5-7b',
         name: 'Qwen2.5-7B-INT4',
-        type: 'llm',
+        category: 'llm',
         provider: 'ollama',
         model_id: 'qwen2.5:7b-instruct-q4_0',
         size_gb: 4.5,
@@ -94,13 +94,13 @@ const ModelManager: React.FC = () => {
         requires_api_key: false,
       },
       {
-        id: 'bge-m3',
-        name: 'BGE-M3-INT8',
-        type: 'embedding',
-        provider: 'local',
-        model_id: 'BAAI/bge-m3',
-        size_gb: 0.65,
-        description: '多语言向量模型，支持中英文',
+        id: 'bge-small-zh',
+        name: 'BGE-Small-ZH-Q4',
+        category: 'embedding',
+        provider: 'ollama',
+        model_id: 'qllama/bge-small-zh-v1.5:q4_k_m',
+        size_gb: 0.05,
+        description: '中文向量模型，量化版本，内存占用低',
         status: 'installed',
         is_active: true,
         is_default: true,
@@ -109,7 +109,7 @@ const ModelManager: React.FC = () => {
       {
         id: 'openai-gpt4',
         name: 'GPT-4',
-        type: 'llm',
+        category: 'llm',
         provider: 'openai',
         model_id: 'gpt-4',
         size_gb: 0,
@@ -248,7 +248,7 @@ const ModelManager: React.FC = () => {
   }
 
   // 筛选模型
-  const filteredModels = models.filter((m) => m.type === selectedTab)
+  const filteredModels = models.filter((m) => m.category === selectedTab)
 
   useEffect(() => {
     fetchModels()
@@ -380,6 +380,30 @@ const ModelManager: React.FC = () => {
               <path d="m19 5-14 14" />
             </svg>
             向量模型
+          </button>
+
+          <button
+            className={`model-manager-v2__tab ${
+              selectedTab === 'image' ? 'model-manager-v2__tab--active' : ''
+            }`}
+            onClick={() => setSelectedTab('image')}
+          >
+            {/* 图像图标 */}
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <polyline points="21 15 16 10 5 21" />
+            </svg>
+            生图模型
           </button>
         </div>
 

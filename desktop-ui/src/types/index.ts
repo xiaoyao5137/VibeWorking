@@ -90,9 +90,9 @@ export interface ActionResult {
   action_id:   string
 }
 
-export type WindowMode = 'buddy' | 'rag' | 'creation' | 'knowledge' | 'models' | 'privacy' | 'settings' | 'debug' | 'tasks' | 'monitor' | 'bake'
+export type WindowMode = 'buddy' | 'rag' | 'creation' | 'knowledge' | 'models' | 'privacy' | 'settings' | 'debug' | 'tasks' | 'monitor' | 'bake' | 'profile'
 
-export type BakeTab = 'overview' | 'templates' | 'memories' | 'knowledge' | 'sop' | 'style'
+export type BakeTab = 'overview' | 'templates' | 'knowledge' | 'sop'
 
 export type BakeBucket = 'extracted' | 'pending'
 
@@ -217,6 +217,7 @@ export interface ArticleTemplate {
   diagramCode?: string
   imageAssets?: string[]
   promptHint?: string
+  detailedContent?: string
   usageCount: number
   reviewStatus: string
   matchScore?: number
@@ -244,6 +245,7 @@ export interface SopCandidate {
   triggerKeywords: string[]
   confidence: 'low' | 'medium' | 'high'
   extractedProblem?: string
+  detailedContent?: string
   steps: string[]
   linkedKnowledgeIds: string[]
   linkedKnowledgeSummaries: LinkedKnowledgeSummary[]
@@ -494,4 +496,3 @@ export interface PrivacyFilterRecord {
   updated_at: string
   week_blocked?: number
 }
-

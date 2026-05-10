@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import type { BakeBucket, SopCandidate } from '../../types'
-import { BakeButton, BakeCard, BakePill, BakeSectionHeader } from './BakeShared'
+import type { SopCandidate } from '../../types'
+import { BakeButton, BakeCard, BakeMarkdown, BakePill, BakeSectionHeader } from './BakeShared'
 
 const confidenceLabel: Record<SopCandidate['confidence'], string> = {
   low: '低',
@@ -29,6 +29,7 @@ const BakeSopTab: React.FC<{
   onPageChange: (offset: number) => void
   onLimitChange: (limit: number) => void
   onQueryChange: (query: string) => void
+  onCreateSop?: (sop: Partial<SopCandidate>) => void
 }> = ({
   candidates,
   total,
@@ -43,11 +44,70 @@ const BakeSopTab: React.FC<{
   onPageChange,
   onLimitChange,
   onQueryChange,
+  onCreateSop,
 }) => {
   const selected = candidates.find(item => item.id === selectedSopId) ?? candidates[0]
   const [pageInput, setPageInput] = useState('')
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [newSop, setNewSop] = useState<{
+    extractedProblem: string
+    detailedContent: string
+    steps: string[]
+    triggerKeywords: string[]
+    confidence: 'low' | 'medium' | 'high'
+  }>({
+    extractedProblem: '',
+    detailedContent: '',
+    steps: [''],
+    triggerKeywords: [''],
+    confidence: 'medium',
+  })
   const page = Math.floor(offset / limit) + 1
   const totalPages = Math.max(1, Math.ceil(total / limit))
+
+  const handleCreate = () => {
+    if (!newSop.extractedProblem.trim() || newSop.steps.filter(s => s.trim()).length === 0) return
+    onCreateSop?.({
+      ...newSop,
+      id: `sop-manual-${Date.now()}`,
+      sourceCaptureId: '',
+      steps: newSop.steps.filter(s => s.trim()),
+      triggerKeywords: newSop.triggerKeywords.filter(k => k.trim()),
+      linkedKnowledgeIds: [],
+      linkedKnowledgeSummaries: [],
+      status: 'confirmed',
+    })
+    setShowCreateDialog(false)
+    setNewSop({
+      extractedProblem: '',
+      detailedContent: '',
+      steps: [''],
+      triggerKeywords: [''],
+      confidence: 'medium',
+    })
+  }
+
+  const addStep = () => setNewSop({ ...newSop, steps: [...newSop.steps, ''] })
+  const updateStep = (index: number, value: string) => {
+    const updated = [...newSop.steps]
+    updated[index] = value
+    setNewSop({ ...newSop, steps: updated })
+  }
+  const removeStep = (index: number) => {
+    if (newSop.steps.length <= 1) return
+    setNewSop({ ...newSop, steps: newSop.steps.filter((_, i) => i !== index) })
+  }
+
+  const addKeyword = () => setNewSop({ ...newSop, triggerKeywords: [...newSop.triggerKeywords, ''] })
+  const updateKeyword = (index: number, value: string) => {
+    const updated = [...newSop.triggerKeywords]
+    updated[index] = value
+    setNewSop({ ...newSop, triggerKeywords: updated })
+  }
+  const removeKeyword = (index: number) => {
+    if (newSop.triggerKeywords.length <= 1) return
+    setNewSop({ ...newSop, triggerKeywords: newSop.triggerKeywords.filter((_, i) => i !== index) })
+  }
 
   return (
     <>
@@ -55,6 +115,7 @@ const BakeSopTab: React.FC<{
         <BakeSectionHeader
           title="操作手册"
           subtitle="管理可复用的操作流程和最佳实践"
+          right={onCreateSop && <BakeButton primary onClick={() => setShowCreateDialog(true)}>新建手册</BakeButton>}
         />
         <div className="bake-list-toolbar">
           <div className="bake-list-toolbar__filters">
@@ -168,6 +229,10 @@ const BakeSopTab: React.FC<{
               </div>
             </div>
             <div className="bake-knowledge-detail__section">
+              <div className="bake-kv__title">详细描述</div>
+              <BakeMarkdown content={selected.detailedContent} />
+            </div>
+            <div className="bake-knowledge-detail__section">
               <div className="bake-kv__title">关联知识</div>
               <div className="bake-muted">
                 {selected.linkedKnowledgeIds.length > 0
@@ -199,6 +264,98 @@ const BakeSopTab: React.FC<{
         )}
       </BakeCard>
       </div>
+      {showCreateDialog && (
+        <div className="bake-modal-overlay" onClick={() => setShowCreateDialog(false)}>
+          <div className="bake-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="bake-modal__header">
+              <h3>新建操作手册</h3>
+              <button className="bake-modal__close" onClick={() => setShowCreateDialog(false)}>×</button>
+            </div>
+            <div className="bake-modal__body">
+              <label className="bake-form-field">
+                <span className="bake-form-label">问题描述 *</span>
+                <input
+                  className="bake-input"
+                  value={newSop.extractedProblem}
+                  onChange={(e) => setNewSop({ ...newSop, extractedProblem: e.target.value })}
+                  placeholder="描述这个操作手册要解决的问题"
+                />
+              </label>
+              <label className="bake-form-field">
+                <span className="bake-form-label">详细说明</span>
+                <textarea
+                  className="bake-textarea"
+                  rows={4}
+                  value={newSop.detailedContent}
+                  onChange={(e) => setNewSop({ ...newSop, detailedContent: e.target.value })}
+                  placeholder="对操作手册的详细说明，支持 Markdown 格式"
+                />
+              </label>
+              <div className="bake-form-field">
+                <span className="bake-form-label">操作步骤 *</span>
+                {newSop.steps.map((step, index) => (
+                  <div key={index} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    <input
+                      className="bake-input"
+                      value={step}
+                      onChange={(e) => updateStep(index, e.target.value)}
+                      placeholder={`步骤 ${index + 1}`}
+                      style={{ flex: 1 }}
+                    />
+                    {newSop.steps.length > 1 && (
+                      <BakeButton compact onClick={() => removeStep(index)}>删除</BakeButton>
+                    )}
+                  </div>
+                ))}
+                <BakeButton compact onClick={addStep}>+ 添加步骤</BakeButton>
+              </div>
+              <div className="bake-form-field">
+                <span className="bake-form-label">触发关键词</span>
+                {newSop.triggerKeywords.map((keyword, index) => (
+                  <div key={index} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    <input
+                      className="bake-input"
+                      value={keyword}
+                      onChange={(e) => updateKeyword(index, e.target.value)}
+                      placeholder={`关键词 ${index + 1}`}
+                      style={{ flex: 1 }}
+                    />
+                    {newSop.triggerKeywords.length > 1 && (
+                      <BakeButton compact onClick={() => removeKeyword(index)}>删除</BakeButton>
+                    )}
+                  </div>
+                ))}
+                <BakeButton compact onClick={addKeyword}>+ 添加关键词</BakeButton>
+              </div>
+              <label className="bake-form-field">
+                <span className="bake-form-label">置信度</span>
+                <select
+                  className="bake-input"
+                  value={newSop.confidence}
+                  onChange={(e) => {
+                    const value = e.target.value as 'low' | 'medium' | 'high'
+                    setNewSop({ ...newSop, confidence: value })
+                  }}
+                >
+                  <option value="low">低</option>
+                  <option value="medium">中</option>
+                  <option value="high">高</option>
+                </select>
+              </label>
+            </div>
+            <div className="bake-modal__footer">
+              <BakeButton onClick={() => setShowCreateDialog(false)}>取消</BakeButton>
+              <BakeButton
+                primary
+                onClick={handleCreate}
+                disabled={!newSop.extractedProblem.trim() || newSop.steps.filter(s => s.trim()).length === 0}
+              >
+                创建
+              </BakeButton>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

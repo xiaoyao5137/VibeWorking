@@ -11,5 +11,6 @@ pub mod monitor;
 pub mod pii;
 pub mod preferences;
 pub mod privacy;
+pub mod profile;
 pub mod query;
 pub mod tasks;

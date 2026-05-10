@@ -73,6 +73,8 @@ pub enum TaskRequest {
     Embed(EmbedRequest),
     /// PII 敏感信息脱敏
     PiiScrub(PiiScrubRequest),
+    /// 用户画像分析
+    ProfileAnalysis(ProfileAnalysisRequest),
 }
 
 /// OCR 请求
@@ -121,6 +123,17 @@ pub struct PiiScrubRequest {
     pub text:       String,
 }
 
+/// 用户画像分析请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileAnalysisRequest {
+    /// 分析起始日期 (ISO8601)
+    pub start_date: String,
+    /// 分析结束日期 (ISO8601)
+    pub end_date: String,
+    /// 现有画像 JSON（用于增量合并）
+    pub existing_profile: Option<String>,
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 任务结果载荷（ResultPayload）
 // ─────────────────────────────────────────────────────────────────────────────
@@ -134,6 +147,7 @@ pub enum ResultPayload {
     Vlm(VlmResult),
     Embed(EmbedResult),
     PiiScrub(PiiScrubResult),
+    ProfileAnalysis(ProfileAnalysisResult),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,6 +222,12 @@ pub struct PiiScrubResult {
     pub redacted_count: usize,
     /// 脱敏的实体类型列表，如 ["PERSON", "PHONE_NUMBER"]
     pub redacted_types: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileAnalysisResult {
+    /// 合并后的用户画像 JSON
+    pub profile: String,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

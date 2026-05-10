@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::storage::db::current_ts_ms;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BakeTemplateRecord {
+pub struct BakeDesignRecord {
     pub id: i64,
     pub name: String,
     pub category: String,
@@ -18,6 +18,7 @@ pub struct BakeTemplateRecord {
     pub style_phrases: String,
     pub replacement_rules: String,
     pub prompt_hint: Option<String>,
+    pub detailed_content: Option<String>,
     pub diagram_code: Option<String>,
     pub image_assets: String,
     pub usage_count: i64,
@@ -33,7 +34,7 @@ pub struct BakeTemplateRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NewBakeTemplate {
+pub struct NewBakeDesign {
     pub name: String,
     pub category: String,
     pub status: String,
@@ -47,6 +48,7 @@ pub struct NewBakeTemplate {
     pub style_phrases: String,
     pub replacement_rules: String,
     pub prompt_hint: Option<String>,
+    pub detailed_content: Option<String>,
     pub diagram_code: Option<String>,
     pub image_assets: String,
     pub usage_count: i64,
@@ -59,7 +61,7 @@ pub struct NewBakeTemplate {
     pub deleted_at: Option<i64>,
 }
 
-impl NewBakeTemplate {
+impl NewBakeDesign {
     pub fn with_defaults(name: String, category: String) -> Self {
         Self {
             name,
@@ -75,6 +77,7 @@ impl NewBakeTemplate {
             style_phrases: "[]".to_string(),
             replacement_rules: "[]".to_string(),
             prompt_hint: None,
+            detailed_content: None,
             diagram_code: None,
             image_assets: "[]".to_string(),
             usage_count: 0,
@@ -129,6 +132,7 @@ pub struct TimelineRecord {
     pub summary: String,
     pub overview: Option<String>,
     pub details: Option<String>,
+    pub detailed_content: Option<String>,
     pub entities: String,
     pub category: String,
     pub importance: i64,
@@ -163,44 +167,6 @@ pub type NewEpisodicMemory = NewTimeline;
 pub type EpisodicMemoryRecord = TimelineRecord;
 pub type NewKnowledgeEntry = NewTimeline;
 pub type KnowledgeEntryRecord = TimelineRecord;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// designs 表 - 设计（原 bake_articles）
-// ─────────────────────────────────────────────────────────────────────────────
-
-pub struct NewDesign {
-    pub timeline_id: i64,
-    pub title: String,
-    pub summary: String,
-    pub content: Option<String>,
-    pub detailed_content: Option<String>,
-    pub entities: String,
-    pub importance: i64,
-    pub source_capture_ids: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DesignRecord {
-    pub id: i64,
-    pub timeline_id: i64,
-    pub title: String,
-    pub summary: String,
-    pub content: Option<String>,
-    pub detailed_content: Option<String>,
-    pub entities: String,
-    pub importance: i64,
-    pub user_verified: bool,
-    pub user_edited: bool,
-    pub created_at: String,
-    pub updated_at: String,
-    pub created_at_ms: i64,
-    pub updated_at_ms: i64,
-    pub source_capture_ids: Option<String>,
-}
-
-// 向后兼容的类型别名
-pub type NewBakeArticle = NewDesign;
-pub type BakeArticleRecord = DesignRecord;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // bake_knowledge 表 - 提炼后的知识
@@ -359,32 +325,6 @@ pub struct BakeWatermarkRecord {
     pub pipeline_name: String,
     pub last_processed_ts: i64,
     pub updated_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BakeDesignRecord {
-    pub id: i64,
-    pub title: String,
-    pub summary: String,
-    pub content: String,
-    pub design_type: Option<String>,
-    pub status: String,
-    pub tags: String,
-    pub key_decisions: String,
-    pub technologies: String,
-    pub entities: String,
-    pub diagram_code: Option<String>,
-    pub source_capture_ids: String,
-    pub source_episode_ids: String,
-    pub match_score: Option<f64>,
-    pub match_level: Option<String>,
-    pub creation_mode: String,
-    pub review_status: String,
-    pub evidence_summary: Option<String>,
-    pub generation_version: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-    pub deleted_at: Option<i64>,
 }
 
 pub fn now_ms() -> i64 {

@@ -399,8 +399,8 @@ export function usePromoteBakeMemoryToTemplate() {
   const apiBaseUrl = useAppStore((s) => s.apiBaseUrl)
 
   return useCallback(async (id: string): Promise<ArticleTemplate> => {
-    const resp = await fetch(`${apiBaseUrl}/api/bake/memories/${encodeURIComponent(id)}/promote-template`, { method: 'POST' })
-    if (!resp.ok) throw new Error(`promote bake memory to template failed: ${resp.status}`)
+    const resp = await fetch(`${apiBaseUrl}/api/bake/memories/${encodeURIComponent(id)}/promote-design`, { method: 'POST' })
+    if (!resp.ok) throw new Error(`promote bake memory to design failed: ${resp.status}`)
     const item = await resp.json()
     return mapBakeTemplate(item)
   }, [apiBaseUrl])
@@ -421,14 +421,14 @@ export function useFetchBakeTemplates() {
   const apiBaseUrl = useAppStore((s) => s.apiBaseUrl)
 
   return useCallback(async (params: BakeListQueryParams = {}): Promise<PaginatedBakeResponse<ArticleTemplate>> => {
-    const url = new URL(`${apiBaseUrl}/api/bake/templates`)
+    const url = new URL(`${apiBaseUrl}/api/bake/designs`)
     if (params.q) url.searchParams.set('q', params.q)
     if (params.bucket) url.searchParams.set('bucket', params.bucket)
     if (params.limit != null) url.searchParams.set('limit', String(params.limit))
     if (params.offset != null) url.searchParams.set('offset', String(params.offset))
 
     const resp = await fetch(url.toString())
-    if (!resp.ok) throw new Error(`bake templates fetch failed: ${resp.status}`)
+    if (!resp.ok) throw new Error(`bake designs fetch failed: ${resp.status}`)
     const data = await resp.json()
     return {
       items: (data.items ?? data.templates ?? []).map(mapBakeTemplate),
@@ -443,12 +443,12 @@ export function useCreateBakeTemplate() {
   const apiBaseUrl = useAppStore((s) => s.apiBaseUrl)
 
   return useCallback(async (template: ArticleTemplate): Promise<ArticleTemplate> => {
-    const resp = await fetch(`${apiBaseUrl}/api/bake/templates`, {
+    const resp = await fetch(`${apiBaseUrl}/api/bake/designs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(serializeBakeTemplate(template)),
     })
-    if (!resp.ok) throw new Error(`create bake template failed: ${resp.status}`)
+    if (!resp.ok) throw new Error(`create bake design failed: ${resp.status}`)
     return mapBakeTemplate(await resp.json())
   }, [apiBaseUrl])
 }
@@ -457,12 +457,12 @@ export function useUpdateBakeTemplate() {
   const apiBaseUrl = useAppStore((s) => s.apiBaseUrl)
 
   return useCallback(async (template: ArticleTemplate): Promise<ArticleTemplate> => {
-    const resp = await fetch(`${apiBaseUrl}/api/bake/templates/${encodeURIComponent(template.id)}`, {
+    const resp = await fetch(`${apiBaseUrl}/api/bake/designs/${encodeURIComponent(template.id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(serializeBakeTemplate(template)),
     })
-    if (!resp.ok) throw new Error(`update bake template failed: ${resp.status}`)
+    if (!resp.ok) throw new Error(`update bake design failed: ${resp.status}`)
     return mapBakeTemplate(await resp.json())
   }, [apiBaseUrl])
 }
@@ -471,8 +471,8 @@ export function useToggleBakeTemplateStatus() {
   const apiBaseUrl = useAppStore((s) => s.apiBaseUrl)
 
   return useCallback(async (id: string): Promise<ArticleTemplate> => {
-    const resp = await fetch(`${apiBaseUrl}/api/bake/templates/${encodeURIComponent(id)}/toggle-status`, { method: 'POST' })
-    if (!resp.ok) throw new Error(`toggle bake template failed: ${resp.status}`)
+    const resp = await fetch(`${apiBaseUrl}/api/bake/designs/${encodeURIComponent(id)}/toggle-status`, { method: 'POST' })
+    if (!resp.ok) throw new Error(`toggle bake design failed: ${resp.status}`)
     return mapBakeTemplate(await resp.json())
   }, [apiBaseUrl])
 }
@@ -481,8 +481,8 @@ export function useAdoptBakeTemplate() {
   const apiBaseUrl = useAppStore((s) => s.apiBaseUrl)
 
   return useCallback(async (id: string): Promise<ArticleTemplate> => {
-    const resp = await fetch(`${apiBaseUrl}/api/bake/templates/${encodeURIComponent(id)}/adopt`, { method: 'POST' })
-    if (!resp.ok) throw new Error(`adopt bake template failed: ${resp.status}`)
+    const resp = await fetch(`${apiBaseUrl}/api/bake/designs/${encodeURIComponent(id)}/adopt`, { method: 'POST' })
+    if (!resp.ok) throw new Error(`adopt bake design failed: ${resp.status}`)
     return mapBakeTemplate(await resp.json())
   }, [apiBaseUrl])
 }
@@ -491,8 +491,8 @@ export function useDeleteBakeTemplate() {
   const apiBaseUrl = useAppStore((s) => s.apiBaseUrl)
 
   return useCallback(async (id: string): Promise<void> => {
-    const resp = await fetch(`${apiBaseUrl}/api/bake/templates/${encodeURIComponent(id)}`, { method: 'DELETE' })
-    if (!resp.ok) throw new Error(`delete bake template failed: ${resp.status}`)
+    const resp = await fetch(`${apiBaseUrl}/api/bake/designs/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (!resp.ok) throw new Error(`delete bake design failed: ${resp.status}`)
   }, [apiBaseUrl])
 }
 
@@ -628,6 +628,7 @@ function mapBakeKnowledge(item: any): BakeKnowledgeItem {
     summary: item.summary,
     overview: item.overview,
     details: item.details,
+    detailedContent: item.detailed_content,
     entities: item.entities ?? [],
     category: item.category,
     importance: item.importance ?? 0,
@@ -676,12 +677,13 @@ function mapBakeTemplate(item: any): ArticleTemplate {
     status: item.status,
     tags: item.tags ?? [],
     applicableTasks: item.applicable_tasks ?? [],
-    sourceMemoryIds: item.source_memory_ids ?? item.source_article_ids ?? [],
+    sourceMemoryIds: item.source_memory_ids ?? [],
     linkedKnowledgeIds: item.linked_knowledge_ids ?? [],
     structureSections: item.structure_sections ?? [],
     stylePhrases: item.style_phrases ?? [],
     replacementRules: item.replacement_rules ?? [],
     promptHint: item.prompt_hint,
+    detailedContent: item.detailed_content,
     diagramCode: item.diagram_code,
     imageAssets: item.image_assets ?? [],
     usageCount: item.usage_count ?? 0,
@@ -700,12 +702,12 @@ function serializeBakeTemplate(template: ArticleTemplate) {
     tags: template.tags,
     applicable_tasks: template.applicableTasks,
     source_memory_ids: template.sourceMemoryIds,
-    source_article_ids: template.sourceMemoryIds,
     linked_knowledge_ids: template.linkedKnowledgeIds,
     structure_sections: template.structureSections,
     style_phrases: template.stylePhrases,
     replacement_rules: template.replacementRules,
     prompt_hint: template.promptHint,
+    detailed_content: template.detailedContent,
     diagram_code: template.diagramCode,
     image_assets: template.imageAssets ?? [],
     usage_count: template.usageCount,
@@ -723,6 +725,7 @@ function mapBakeSop(item: any): SopCandidate {
     triggerKeywords: item.trigger_keywords ?? [],
     confidence: item.confidence,
     extractedProblem: item.extracted_problem,
+    detailedContent: item.detailed_content,
     steps: item.steps ?? [],
     linkedKnowledgeIds: item.linked_knowledge_ids ?? [],
     linkedKnowledgeSummaries: item.linked_knowledge_summaries ?? [],

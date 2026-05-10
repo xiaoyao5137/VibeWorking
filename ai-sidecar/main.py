@@ -184,7 +184,7 @@ async def _main() -> None:
 
             from background_processor import BackgroundProcessor
             db_path = str(Path.home() / ".memory-bread" / "memory-bread.db")
-            bg_processor = BackgroundProcessor(db_path=db_path, interval=90, batch_size=8)
+            bg_processor = BackgroundProcessor(db_path=db_path, interval=30, batch_size=20)
             runtime_state["bg_processor"] = bg_processor
             asyncio.create_task(bg_processor.run())
             logger.info("后台处理器已启动（向量化 + 知识提炼）")

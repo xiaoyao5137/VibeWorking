@@ -327,3 +327,26 @@ pub struct PrivacyBlockStat {
     pub week_start: String,
     pub updated_at: String,
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// user_profiles 表
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserProfileRecord {
+    pub id: i64,
+    pub snapshot_type: String,
+    pub snapshot_date: String,
+    pub content: String,
+    pub is_system_generated: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewUserProfile {
+    pub snapshot_type: String,
+    pub snapshot_date: String,
+    pub content: String,
+    pub is_system_generated: bool,
+}

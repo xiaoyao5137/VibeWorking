@@ -67,7 +67,7 @@ class VectorStorage:
                     self._qdrant_client.create_collection(
                         collection_name=self._collection_name,
                         vectors_config=VectorParams(
-                            size=1024,  # bge-m3 维度
+                            size=512,  # bge-small-zh-v1.5 维度
                             distance=Distance.COSINE,
                         ),
                     )

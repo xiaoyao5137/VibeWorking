@@ -35,10 +35,9 @@ describe('显式搜索交互', () => {
   it('BakePanel 知识搜索只有点击搜索后才发起带关键词请求', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
+      if (url.includes('/api/models')) return jsonResponse({ ollama: true, llm: true, embedding: true })
       if (url.includes('/api/bake/overview')) return jsonResponse(overviewResponse)
-      if (url.includes('/api/bake/style-config')) return jsonResponse(styleConfigResponse)
       if (url.includes('/api/bake/knowledge')) return jsonResponse({ items: [], total: 0, limit: 20, offset: 0 })
-      if (url.includes('/api/bake/memories')) return jsonResponse({ memories: [], total: 0, limit: 20, offset: 0 })
       throw new Error(`unexpected url: ${url}`)
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -48,7 +47,7 @@ describe('显式搜索交互', () => {
     render(<BakePanel />)
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('http://localhost:7070/api/bake/knowledge?bucket=extracted&limit=20&offset=0')
+      expect(fetchMock).toHaveBeenCalledWith('http://localhost:7070/api/bake/knowledge?limit=20&offset=0')
     })
 
     const callsBeforeTyping = fetchMock.mock.calls.length
@@ -59,17 +58,16 @@ describe('显式搜索交互', () => {
     fireEvent.click(screen.getByRole('button', { name: '搜索' }))
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('http://localhost:7070/api/bake/knowledge?q=%E8%8A%9D%E5%A3%AB&bucket=extracted&limit=20&offset=0')
+      expect(fetchMock).toHaveBeenCalledWith('http://localhost:7070/api/bake/knowledge?q=%E8%8A%9D%E5%A3%AB&limit=20&offset=0')
     })
   })
 
   it('BakePanel 知识页在没有 bake knowledge 时显示明确空态', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
+      if (url.includes('/api/models')) return jsonResponse({ ollama: true, llm: true, embedding: true })
       if (url.includes('/api/bake/overview')) return jsonResponse(overviewResponse)
-      if (url.includes('/api/bake/style-config')) return jsonResponse(styleConfigResponse)
       if (url.includes('/api/bake/knowledge')) return jsonResponse({ items: [], total: 0, limit: 20, offset: 0 })
-      if (url.includes('/api/bake/memories')) return jsonResponse({ memories: [], total: 0, limit: 20, offset: 0 })
       throw new Error(`unexpected url: ${url}`)
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -79,134 +77,10 @@ describe('显式搜索交互', () => {
     render(<BakePanel />)
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('http://localhost:7070/api/bake/knowledge?bucket=extracted&limit=20&offset=0')
+      expect(fetchMock).toHaveBeenCalledWith('http://localhost:7070/api/bake/knowledge?limit=20&offset=0')
     })
 
-    expect(screen.getByText('当前还没有已提炼知识。')).toBeInTheDocument()
-  })
-
-  it('BakePanel 情节记忆页展示创建时间、匹配分并正确禁用单页分页按钮', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input)
-      if (url.includes('/api/bake/overview')) return jsonResponse(overviewResponse)
-      if (url.includes('/api/bake/style-config')) return jsonResponse(styleConfigResponse)
-      if (url.includes('/api/bake/memories')) {
-        return jsonResponse({
-          memories: [{
-            id: 1,
-            title: '记忆 A',
-            summary: '摘要 A',
-            weight: 3,
-            open_count: 1,
-            dwell_seconds: 8,
-            has_edit_action: false,
-            knowledge_ref_count: 2,
-            status: 'candidate',
-            suggested_action: 'knowledge',
-            tags: ['tag-a'],
-            created_at: '2026-04-11 10:00',
-            created_at_ms: 0,
-            knowledge_match_score: 0.91,
-            knowledge_match_level: 'high',
-            template_match_score: 0.89,
-            template_match_level: 'high',
-            sop_match_score: 0.93,
-            sop_match_level: 'high',
-          }],
-          total: 1,
-          limit: 20,
-          offset: 0,
-        })
-      }
-      throw new Error(`unexpected url: ${url}`)
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    useAppStore.setState({ bakeTab: 'memories' })
-
-    render(<BakePanel />)
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('http://localhost:7070/api/bake/memories?limit=20&offset=0')
-    })
-
-    expect(screen.getAllByText('创建于 2026-04-11 10:00').length).toBeGreaterThan(0)
-    expect(screen.getByText('知识匹配 0.91 / high')).toBeInTheDocument()
-    expect(screen.getByText('模板匹配 0.89 / high')).toBeInTheDocument()
-    expect(screen.getByText('SOP 匹配 0.93 / high')).toBeInTheDocument()
-    expect(screen.getByText('第 1/1 页')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '上一页' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '下一页' })).toBeDisabled()
-  })
-
-  it('BakePanel 情节记忆页点击下一页后会按 offset 翻页', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input)
-      if (url.includes('/api/bake/overview')) return jsonResponse(overviewResponse)
-      if (url.includes('/api/bake/style-config')) return jsonResponse(styleConfigResponse)
-      if (url.includes('/api/bake/memories?limit=20&offset=20')) {
-        return jsonResponse({
-          memories: [{
-            id: 21,
-            title: '记忆第 2 页',
-            summary: '第二页摘要',
-            weight: 5,
-            open_count: 2,
-            dwell_seconds: 9,
-            has_edit_action: false,
-            knowledge_ref_count: 3,
-            status: 'candidate',
-            suggested_action: 'knowledge',
-            tags: ['tag-b'],
-            created_at: '2026-04-11 11:00',
-            created_at_ms: 0,
-          }],
-          total: 21,
-          limit: 20,
-          offset: 20,
-        })
-      }
-      if (url.includes('/api/bake/memories')) {
-        return jsonResponse({
-          memories: [{
-            id: 1,
-            title: '记忆第 1 页',
-            summary: '第一页摘要',
-            weight: 3,
-            open_count: 1,
-            dwell_seconds: 8,
-            has_edit_action: false,
-            knowledge_ref_count: 2,
-            status: 'candidate',
-            suggested_action: 'knowledge',
-            tags: ['tag-a'],
-            created_at: '2026-04-11 10:00',
-            created_at_ms: 0,
-          }],
-          total: 21,
-          limit: 20,
-          offset: 0,
-        })
-      }
-      throw new Error(`unexpected url: ${url}`)
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    useAppStore.setState({ bakeTab: 'memories' })
-
-    render(<BakePanel />)
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('http://localhost:7070/api/bake/memories?limit=20&offset=0')
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: '下一页' }))
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('http://localhost:7070/api/bake/memories?limit=20&offset=20')
-    })
-    expect(screen.getAllByText('记忆第 2 页').length).toBeGreaterThan(0)
-    expect(screen.getByText('第 2/2 页')).toBeInTheDocument()
+    expect(screen.getByText('当前还没有知识条目。')).toBeInTheDocument()
   })
 
   it('RepositoryPanel 展示采集标题以及情节记忆创建时间', async () => {

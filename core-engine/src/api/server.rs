@@ -13,15 +13,15 @@ use super::{
     handlers::{
         action::execute_action,
         bake::{
-            adopt_bake_design, adopt_bake_knowledge, adopt_bake_sop, adopt_bake_template,
-            create_bake_template, delete_bake_design, delete_bake_knowledge, delete_bake_sop,
-            delete_bake_template, get_bake_capture, get_bake_capture_screenshot,
+            adopt_bake_design, adopt_bake_knowledge, adopt_bake_sop, create_bake_design,
+            delete_bake_design, delete_bake_knowledge, delete_bake_sop,
+            get_bake_capture, get_bake_capture_screenshot,
             get_bake_memory_preview, get_bake_overview, get_bake_style_config,
             ignore_bake_knowledge, ignore_bake_memory, ignore_bake_sop, initialize_bake_memories,
             list_bake_captures, list_bake_designs, list_bake_knowledge, list_bake_memories,
-            list_bake_sops, list_bake_templates, promote_bake_memory_to_sop,
-            promote_bake_memory_to_template, run_bake_pipeline, toggle_bake_template_status,
-            update_bake_style_config, update_bake_template,
+            list_bake_sops, promote_bake_memory_to_design, promote_bake_memory_to_sop,
+            run_bake_pipeline, toggle_bake_design_status, update_bake_design,
+            update_bake_style_config,
         },
         captures::list_captures,
         creation::generate_document,
@@ -37,6 +37,7 @@ use super::{
             add_blacklist, delete_blacklist, list_blacklist, list_filters, update_blacklist_enabled,
             update_filter_config, update_filter_enabled,
         },
+        profile::{get_latest_profile, get_profile, list_profiles, update_profile},
         query::rag_query,
         tasks::{
             create_task, delete_task, get_task, list_executions, list_tasks, trigger_task,
@@ -95,6 +96,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // 监控
         .route("/api/monitor/overview", get(monitor_overview))
         .route("/api/monitor/system", get(monitor_system))
+        // 用户画像
+        .route("/api/profiles", get(list_profiles))
+        .route("/api/profiles/latest", get(get_latest_profile))
+        .route("/api/profiles/:id", get(get_profile).put(update_profile))
         // 隐私设置
         .route("/api/privacy/blacklist", get(list_blacklist).post(add_blacklist))
         .route(
@@ -121,26 +126,20 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/bake/style-config",
             get(get_bake_style_config).put(update_bake_style_config),
         )
-        .route(
-            "/api/bake/templates",
-            get(list_bake_templates).post(create_bake_template),
-        )
-        .route(
-            "/api/bake/templates/:id",
-            put(update_bake_template).delete(delete_bake_template),
-        )
-        .route("/api/bake/templates/:id/adopt", post(adopt_bake_template))
-        .route(
-            "/api/bake/templates/:id/toggle-status",
-            post(toggle_bake_template_status),
-        )
         .route("/api/bake/sops", get(list_bake_sops))
         .route("/api/bake/sops/:id", axum::routing::delete(delete_bake_sop))
         .route("/api/bake/sops/:id/adopt", post(adopt_bake_sop))
         .route("/api/bake/sops/:id/ignore", post(ignore_bake_sop))
-        .route("/api/bake/designs", get(list_bake_designs))
-        .route("/api/bake/designs/:id", axum::routing::delete(delete_bake_design))
+        .route("/api/bake/designs", get(list_bake_designs).post(create_bake_design))
+        .route(
+            "/api/bake/designs/:id",
+            put(update_bake_design).delete(delete_bake_design),
+        )
         .route("/api/bake/designs/:id/adopt", post(adopt_bake_design))
+        .route(
+            "/api/bake/designs/:id/toggle-status",
+            post(toggle_bake_design_status),
+        )
         .route("/api/bake/articles", get(list_bake_memories))
         .route("/api/bake/memories", get(list_bake_memories))
         .route("/api/bake/knowledge", get(list_bake_knowledge))
@@ -164,12 +163,12 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/bake/articles/:id/ignore", post(ignore_bake_memory))
         .route("/api/bake/memories/:id/ignore", post(ignore_bake_memory))
         .route(
-            "/api/bake/articles/:id/promote-template",
-            post(promote_bake_memory_to_template),
+            "/api/bake/articles/:id/promote-design",
+            post(promote_bake_memory_to_design),
         )
         .route(
-            "/api/bake/memories/:id/promote-template",
-            post(promote_bake_memory_to_template),
+            "/api/bake/memories/:id/promote-design",
+            post(promote_bake_memory_to_design),
         )
         .route(
             "/api/bake/articles/:id/promote-sop",

@@ -68,6 +68,17 @@
             "capture_id": { "type": "integer" },
             "text":       { "type": "string" }
           }
+        },
+        {
+          "title": "ProfileAnalysis",
+          "type": "object",
+          "required": ["type", "start_date", "end_date"],
+          "properties": {
+            "type":       { "const": "profile_analysis" },
+            "start_date": { "type": "string", "format": "date" },
+            "end_date":   { "type": "string", "format": "date" },
+            "existing_profile": { "type": ["string", "null"] }
+          }
         }
       ]
     }

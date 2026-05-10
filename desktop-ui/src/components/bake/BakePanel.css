@@ -28,6 +28,54 @@
   color: #6E6E73;
 }
 
+.bake-markdown {
+  color: #2C2C2E;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.bake-markdown > *:first-child {
+  margin-top: 0;
+}
+
+.bake-markdown > *:last-child {
+  margin-bottom: 0;
+}
+
+.bake-markdown h1,
+.bake-markdown h2,
+.bake-markdown h3 {
+  margin: 14px 0 8px;
+  color: #111111;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.bake-markdown p,
+.bake-markdown ul,
+.bake-markdown ol {
+  margin: 8px 0;
+}
+
+.bake-markdown ul,
+.bake-markdown ol {
+  padding-left: 18px;
+}
+
+.bake-markdown code {
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: #F2F2F7;
+}
+
+.bake-markdown pre {
+  padding: 10px;
+  border-radius: 8px;
+  background: #F2F2F7;
+  overflow-x: auto;
+}
+
 .bake-title {
   font-size: 24px;
   font-weight: 700;
@@ -331,7 +379,8 @@
 }
 
 .bake-filter-field--search {
-  min-width: 0;
+  min-width: 280px;
+  flex: 1;
 }
 
 .bake-filter-summary {
@@ -1264,4 +1313,96 @@ button.bake-list-item.bake-list-item--active {
     border-color: #0A84FF;
     box-shadow: 0 12px 28px rgba(10, 132, 255, 0.18);
   }
+}
+
+/* Modal styles */
+.bake-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.bake-modal {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  max-width: 600px;
+  width: 90%;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.bake-modal__header {
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bake-modal__header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #111;
+}
+
+.bake-modal__close {
+  background: none;
+  border: none;
+  font-size: 28px;
+  line-height: 1;
+  color: #666;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.bake-modal__close:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.bake-modal__body {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.bake-modal__body .bake-form-field {
+  margin-bottom: 16px;
+}
+
+.bake-modal__body .bake-form-field:last-child {
+  margin-bottom: 0;
+}
+
+.bake-form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 6px;
+}
+
+.bake-modal__footer {
+  padding: 16px 24px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
 }

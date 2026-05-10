@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 from .base import EmbeddingBackend, EmbeddingVector
-from .bge  import BgeM3Backend
+from .ollama import OllamaEmbeddingBackend
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +23,14 @@ class EmbeddingModel:
     """
 
     def __init__(self, backend: EmbeddingBackend | None = None) -> None:
-        self._backend = backend or BgeM3Backend()
+        self._backend = backend or OllamaEmbeddingBackend()
 
     # ── 工厂方法 ──────────────────────────────────────────────────────────────
 
     @classmethod
     def create_default(cls) -> "EmbeddingModel":
-        """创建默认配置的 EmbeddingModel（bge-m3，CPU）"""
-        return cls(backend=BgeM3Backend())
+        """创建默认配置的 EmbeddingModel（Ollama，量化模型）"""
+        return cls(backend=OllamaEmbeddingBackend())
 
     # ── 公共接口 ──────────────────────────────────────────────────────────────
 

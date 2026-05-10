@@ -129,24 +129,34 @@ AVAILABLE_MODELS = {
     ),
 
     # ========== 向量模型（Embedding） ==========
+    "bge-small-zh": ModelInfo(
+        id="bge-small-zh",
+        name="BGE-Small-ZH-Q4",
+        type=ModelType.EMBEDDING,
+        provider="ollama",
+        model_id="qllama/bge-small-zh-v1.5:q4_k_m",
+        size_gb=0.05,
+        description="BAAI BGE-Small 中文版，512 维，量化版本，内存占用低",
+        is_default=True
+    ),
     "bge-m3": ModelInfo(
         id="bge-m3",
         name="BGE-M3",
         type=ModelType.EMBEDDING,
-        provider="huggingface",
+        provider="ollama",
         model_id="BAAI/bge-m3",
-        size_gb=2.2,
-        description="BAAI BGE-M3，1024 维，支持中英文",
-        is_default=True
+        size_gb=0.6,
+        description="BAAI BGE-M3，多语言向量模型，中英文效果优秀",
+        is_default=False
     ),
     "bge-small": ModelInfo(
         id="bge-small",
-        name="BGE-Small (中文)",
+        name="BGE-Small-ZH",
         type=ModelType.EMBEDDING,
-        provider="huggingface",
+        provider="ollama",
         model_id="BAAI/bge-small-zh-v1.5",
         size_gb=0.1,
-        description="BAAI BGE-Small，512 维，轻量中文模型"
+        description="BAAI BGE-Small 中文版，极小体积，适合低配机器"
     ),
     "text-embedding-3-small": ModelInfo(
         id="text-embedding-3-small",
@@ -192,7 +202,7 @@ class ModelManager:
         # 默认配置
         return {
             "active_llm": "qwen3.5-4b",
-            "active_embedding": "bge-m3",
+            "active_embedding": "bge-small-zh",
             "api_keys": {}
         }
 
@@ -234,10 +244,10 @@ class ModelManager:
 
     def _is_ollama_running(self, base_url: str = OLLAMA_API_BASE) -> bool:
         url = f"{base_url.rstrip('/')}/api/tags"
-        req = urllib.request.Request(url, method='GET')
         try:
-            with urllib.request.urlopen(req, timeout=2) as resp:
-                return getattr(resp, 'status', 0) == 200
+            import requests
+            resp = requests.get(url, timeout=2)
+            return resp.status_code == 200
         except Exception:
             return False
 
@@ -845,6 +855,13 @@ class ModelManager:
             return False, f"验证失败: {err}"
 
     def _ollama_names_for_model(self, model_id: str) -> list[str]:
+        # 优先使用 AVAILABLE_MODELS 中的 model_id
+        if model_id in AVAILABLE_MODELS:
+            info = AVAILABLE_MODELS[model_id]
+            if info.model_id:
+                return [info.model_id]
+
+        # 回退到旧的命名规则
         if model_id.startswith('qwen2.5-'):
             return [model_id.replace('qwen2.5-', 'qwen2.5:')]
         if model_id.startswith('qwen3.5-'):

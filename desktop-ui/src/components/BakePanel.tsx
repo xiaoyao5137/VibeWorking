@@ -7,52 +7,32 @@ import {
   useDeleteBakeKnowledge,
   useDeleteBakeSop,
   useDeleteBakeTemplate,
-  useFetchBakeMemories,
   useFetchBakeKnowledge,
   useFetchBakeOverview,
   useFetchBakeSops,
-  useFetchBakeStyleConfig,
   useFetchBakeTemplates,
   useIgnoreBakeKnowledge,
-  useIgnoreBakeMemory,
   useIgnoreBakeSop,
-  useInitializeBakeMemories,
-  usePromoteBakeMemoryToSop,
-  usePromoteBakeMemoryToTemplate,
   useToggleBakeTemplateStatus,
-  useUpdateBakeStyleConfig,
   useUpdateBakeTemplate,
   useModelStatus,
 } from '../hooks/useApi'
 import { useAppStore } from '../store/useAppStore'
 import type {
   ArticleTemplate,
-  BakeBucket,
   BakeKnowledgeItem,
   BakeOverview,
-  TimelineItem,
   SopCandidate,
-  WritingStyleConfig,
 } from '../types'
 import BakeHeader from './bake/BakeHeader'
 import BakeOverviewTab from './bake/BakeOverviewTab'
-import BakeMemoriesTab from './bake/BakeMemoriesTab'
 import BakeTemplatesTab from './bake/BakeTemplatesTab'
-import BakeStyleTab from './bake/BakeStyleTab'
 import BakeSopTab from './bake/BakeSopTab'
 import BakeKnowledgeTab from './bake/BakeKnowledgeTab'
 import BakeTabs from './bake/BakeTabs'
 import './bake/BakePanel.css'
 
 const PAGE_SIZE = 20
-
-const resolveTemplateBucket = (template?: Pick<ArticleTemplate, 'reviewStatus'> | null): BakeBucket => (
-  template?.reviewStatus === 'candidate' ? 'pending' : 'extracted'
-)
-
-const resolveSopBucket = (candidate?: Pick<SopCandidate, 'status'> | null): BakeBucket => (
-  candidate?.status === 'candidate' ? 'pending' : 'extracted'
-)
 
 const getFallbackOffsetAfterRemoval = (currentCount: number, offset: number, limit: number) => (
   currentCount <= 1 && offset > 0 ? Math.max(0, offset - limit) : offset
@@ -85,14 +65,6 @@ const defaultOverview: BakeOverview = {
   recentActivities: [],
 }
 
-const defaultStyleConfig: WritingStyleConfig = {
-  preferredPhrases: [],
-  replacementRules: [],
-  styleSamples: [],
-  applyToCreation: true,
-  applyToTemplateEditing: true,
-}
-
 const BakePanel: React.FC = () => {
   const {
     bakeTab,
@@ -100,7 +72,6 @@ const BakePanel: React.FC = () => {
     selectedTemplateId,
     selectedSopId,
     selectedKnowledgeId,
-    bakeMemoryOffset,
     bakeKnowledgeOffset,
     bakeKnowledgeQuery,
     bakeKnowledgeLimit,
@@ -119,7 +90,6 @@ const BakePanel: React.FC = () => {
     setSelectedSopId,
     setSelectedKnowledgeId,
     setSelectedCaptureId,
-    setBakeMemoryOffset,
     setBakeKnowledgeOffset,
     setBakeKnowledgeQuery,
     setBakeKnowledgeLimit,
@@ -134,15 +104,10 @@ const BakePanel: React.FC = () => {
 
   const { status: modelStatus, ready: modelsReady, loading: modelStatusLoading } = useModelStatus()
   const fetchOverview = useFetchBakeOverview()
-  const fetchMemories = useFetchBakeMemories()
   const fetchKnowledge = useFetchBakeKnowledge()
   const adoptKnowledge = useAdoptBakeKnowledge()
   const deleteKnowledge = useDeleteBakeKnowledge()
   const ignoreKnowledge = useIgnoreBakeKnowledge()
-  const ignoreMemory = useIgnoreBakeMemory()
-  const initializeMemories = useInitializeBakeMemories()
-  const promoteMemoryToTemplate = usePromoteBakeMemoryToTemplate()
-  const promoteMemoryToSop = usePromoteBakeMemoryToSop()
   const fetchTemplates = useFetchBakeTemplates()
   const createTemplate = useCreateBakeTemplate()
   const adoptTemplate = useAdoptBakeTemplate()
@@ -153,56 +118,31 @@ const BakePanel: React.FC = () => {
   const adoptSop = useAdoptBakeSop()
   const ignoreSop = useIgnoreBakeSop()
   const deleteSop = useDeleteBakeSop()
-  const fetchStyleConfig = useFetchBakeStyleConfig()
-  const updateStyleConfig = useUpdateBakeStyleConfig()
 
   const [overview, setOverview] = useState<BakeOverview>(defaultOverview)
-  const [memories, setMemories] = useState<TimelineItem[]>([])
-  const [memoryTotal, setMemoryTotal] = useState(0)
   const [knowledgeItems, setKnowledgeItems] = useState<BakeKnowledgeItem[]>([])
   const [knowledgeTotal, setKnowledgeTotal] = useState(0)
-  const [templateBucket, setTemplateBucket] = useState<BakeBucket>('extracted')
   const [templates, setTemplates] = useState<ArticleTemplate[]>([])
   const [templateTotal, setTemplateTotal] = useState(0)
   const [sopCandidates, setSopCandidates] = useState<SopCandidate[]>([])
   const [sopTotal, setSopTotal] = useState(0)
-  const [styleConfig, setStyleConfig] = useState<WritingStyleConfig>(defaultStyleConfig)
-  const [isSavingStyle, setIsSavingStyle] = useState(false)
-  const [isInitializingMemories, setIsInitializingMemories] = useState(false)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [draftKnowledgeQuery, setDraftKnowledgeQuery] = useState(bakeKnowledgeQuery)
 
   useEffect(() => {
-    void Promise.all([
-      fetchOverview().then((data) => {
-        setOverview({
-          captureCount: data.capture_count,
-          memoryCount: data.memory_count,
-          knowledgeCount: data.knowledge_count,
-          templateCount: data.template_count,
-          pendingCandidates: data.pending_candidates,
-          recentActivities: data.recent_activities ?? [],
-        })
-      }),
-      fetchStyleConfig().then(setStyleConfig),
-    ]).catch((error) => {
+    void fetchOverview().then((data) => {
+      setOverview({
+        captureCount: data.capture_count,
+        memoryCount: data.memory_count,
+        knowledgeCount: data.knowledge_count,
+        templateCount: data.template_count,
+        pendingCandidates: data.pending_candidates,
+        recentActivities: data.recent_activities ?? [],
+      })
+    }).catch((error) => {
       setStatusMessage(error instanceof Error ? error.message : '收藏数据加载失败')
     })
-  }, [fetchOverview, fetchStyleConfig])
-
-  useEffect(() => {
-    void fetchMemories({ limit: PAGE_SIZE, offset: bakeMemoryOffset }).then((data) => {
-      const maxOffset = data.total > 0 ? Math.max(0, Math.floor((data.total - 1) / PAGE_SIZE) * PAGE_SIZE) : 0
-      setMemoryTotal(data.total)
-      if (data.items.length === 0 && bakeMemoryOffset > maxOffset) {
-        setBakeMemoryOffset(maxOffset)
-        return
-      }
-      setMemories(data.items)
-    }).catch((error) => {
-      setStatusMessage(error instanceof Error ? error.message : '时间线加载失败')
-    })
-  }, [bakeMemoryOffset, fetchMemories, setBakeMemoryOffset])
+  }, [fetchOverview])
 
   useEffect(() => {
     if (bakeTab !== 'knowledge') return
@@ -222,7 +162,6 @@ const BakePanel: React.FC = () => {
     if (bakeTab !== 'templates') return
     void fetchTemplates({
       q: bakeTemplateQuery.trim() || undefined,
-      bucket: templateBucket,
       limit: bakeTemplateLimit,
       offset: bakeTemplateOffset,
     }).then((data) => {
@@ -231,7 +170,7 @@ const BakePanel: React.FC = () => {
     }).catch((error) => {
       setStatusMessage(error instanceof Error ? error.message : '模板加载失败')
     })
-  }, [bakeTab, bakeTemplateLimit, bakeTemplateOffset, bakeTemplateQuery, fetchTemplates, templateBucket])
+  }, [bakeTab, bakeTemplateLimit, bakeTemplateOffset, bakeTemplateQuery, fetchTemplates])
 
   useEffect(() => {
     if (bakeTab !== 'sop') return
@@ -257,12 +196,9 @@ const BakePanel: React.FC = () => {
     setDraftKnowledgeQuery(bakeKnowledgeQuery)
   }, [bakeKnowledgeQuery])
 
-  const resolvedMemoryId = selectedMemoryId ?? memories[0]?.id ?? null
   const resolvedTemplateId = selectedTemplateId ?? templates[0]?.id ?? null
   const resolvedSopId = selectedSopId ?? sopCandidates[0]?.id ?? null
   const resolvedKnowledgeId = selectedKnowledgeId ?? knowledgeItems[0]?.id ?? null
-
-  const visibleMemories = useMemo(() => memories.filter(item => item.status !== 'ignored'), [memories])
 
   const refreshOverview = async () => {
     const data = await fetchOverview()
@@ -276,17 +212,6 @@ const BakePanel: React.FC = () => {
     })
   }
 
-  const refreshMemories = async (offset = bakeMemoryOffset) => {
-    const data = await fetchMemories({ limit: PAGE_SIZE, offset })
-    const maxOffset = data.total > 0 ? Math.max(0, Math.floor((data.total - 1) / PAGE_SIZE) * PAGE_SIZE) : 0
-    setMemoryTotal(data.total)
-    if (data.items.length === 0 && offset > maxOffset) {
-      setBakeMemoryOffset(maxOffset)
-      return
-    }
-    setMemories(data.items)
-  }
-
   const refreshKnowledge = async (offset = bakeKnowledgeOffset) => {
     const data = await fetchKnowledge({
       q: bakeKnowledgeQuery.trim() || undefined,
@@ -297,10 +222,9 @@ const BakePanel: React.FC = () => {
     setKnowledgeTotal(data.total)
   }
 
-  const refreshTemplates = async (offset = bakeTemplateOffset, bucket = templateBucket) => {
+  const refreshTemplates = async (offset = bakeTemplateOffset) => {
     const data = await fetchTemplates({
       q: bakeTemplateQuery.trim() || undefined,
-      bucket,
       limit: bakeTemplateLimit,
       offset,
     })
@@ -333,113 +257,18 @@ const BakePanel: React.FC = () => {
     })
   }
 
-  const handleTemplateBucketChange = (bucket: BakeBucket) => {
-    setTemplateBucket(bucket)
-    setSelectedTemplateId(null)
-    setBakeTemplateOffset(0)
-  }
-
-  const handleOpenMemory = (id: string) => {
-    setBakeTab('memories')
-    setSelectedMemoryId(id)
-  }
-
-  const handleIgnoreMemory = async (id: string) => {
-    try {
-      await ignoreMemory(id)
-      const nextOffset = getFallbackOffsetAfterRemoval(visibleMemories.length, bakeMemoryOffset, PAGE_SIZE)
-      if (selectedMemoryId === id || resolvedMemoryId === id) {
-        setSelectedMemoryId(null)
-      }
-      if (nextOffset !== bakeMemoryOffset) {
-        setBakeMemoryOffset(nextOffset)
-      } else {
-        await refreshMemories(nextOffset)
-      }
-      setStatusMessage('已忽略时间线')
-      await refreshOverview()
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : '忽略时间线失败')
-    }
-  }
-
   const handleCreateTemplate = async () => {
     try {
       const created = await createTemplate(createDraftTemplate())
-      const nextBucket = resolveTemplateBucket(created)
-      setTemplateBucket(nextBucket)
       setTemplates(prev => [created, ...prev.filter(item => item.id !== created.id)])
       setBakeTab('templates')
       setBakeTemplateOffset(0)
       setSelectedTemplateId(created.id)
       setStatusMessage(`已新建模板「${created.name}」`)
       await refreshOverview()
-      if (nextBucket !== templateBucket) {
-        await refreshTemplates(0, nextBucket)
-      }
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '新建模板失败')
     }
-  }
-
-  const handlePromoteToTemplate = async (id: string) => {
-    try {
-      const created = await promoteMemoryToTemplate(id)
-      const nextBucket = resolveTemplateBucket(created)
-      setTemplateBucket(nextBucket)
-      setTemplates(prev => [created, ...prev.filter(item => item.id !== created.id)])
-      await refreshMemories()
-      setBakeTab('templates')
-      setBakeTemplateOffset(0)
-      setSelectedTemplateId(created.id)
-      setStatusMessage(`已创建模板「${created.name}」`)
-      await refreshOverview()
-      if (nextBucket !== templateBucket) {
-        await refreshTemplates(0, nextBucket)
-      }
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : '纳入模板失败')
-    }
-  }
-
-  const handleInitializeMemories = async () => {
-    if (!modelsReady) {
-      setStatusMessage('模型未就绪，无法执行提炼操作')
-      return
-    }
-    setIsInitializingMemories(true)
-    try {
-      const result = await initializeMemories(20)
-      await refreshMemories(0)
-      setBakeMemoryOffset(0)
-      setStatusMessage(result.created_count > 0 ? `已初始化 ${result.created_count} 条时间线` : '没有可初始化的新时间线')
-      await refreshOverview()
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : '初始化时间线失败')
-    } finally {
-      setIsInitializingMemories(false)
-    }
-  }
-
-  const handlePromoteToSop = async (id: string) => {
-    try {
-      const created = await promoteMemoryToSop(id)
-      setSopCandidates(prev => [created, ...prev.filter(item => item.id !== created.id)])
-      setBakeTab('sop')
-      setBakeSopOffset(0)
-      setSelectedSopId(created.id)
-      setStatusMessage(`已生成工作流程指导「${created.extractedProblem || created.sourceTitle || created.id}」`)
-      await refreshOverview()
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : '生成工作流程指导失败')
-    }
-  }
-
-  const handlePromoteToKnowledge = async (_id: string) => {
-    setSelectedKnowledgeId(null)
-    setBakeKnowledgeOffset(0)
-    setBakeTab('knowledge')
-    setStatusMessage('已切换到已提炼知识页；这里不会显示来源 knowledge')
   }
 
   const handleCopy = async (text: string, successMessage: string) => {
@@ -456,7 +285,7 @@ const BakePanel: React.FC = () => {
       setCaptureBackTarget({
         windowMode: 'bake',
         bakeTab,
-        selectedMemoryId: resolvedMemoryId,
+        selectedMemoryId,
         selectedTemplateId: resolvedTemplateId,
         selectedSopId: resolvedSopId,
         selectedKnowledgeId: resolvedKnowledgeId,
@@ -481,16 +310,7 @@ const BakePanel: React.FC = () => {
     if (!target) return
     try {
       const updated = await updateTemplate(updater(target))
-      const nextBucket = resolveTemplateBucket(updated)
-      if (nextBucket !== templateBucket) {
-        setSelectedTemplateId(null)
-        setTemplates(prev => prev.filter(item => item.id !== templateId))
-        setTemplateBucket(nextBucket)
-        setBakeTemplateOffset(0)
-        await refreshTemplates(0, nextBucket)
-      } else {
-        setTemplates(prev => prev.map(item => item.id === templateId ? updated : item))
-      }
+      setTemplates(prev => prev.map(item => item.id === templateId ? updated : item))
       setStatusMessage(`已更新模板「${updated.name}」`)
       await refreshOverview()
     } catch (error) {
@@ -531,19 +351,7 @@ const BakePanel: React.FC = () => {
   const handleAdoptTemplate = async (templateId: string) => {
     try {
       const adopted = await adoptTemplate(templateId)
-      if (templateBucket === 'pending') {
-        const nextOffset = getFallbackOffsetAfterRemoval(templates.length, bakeTemplateOffset, bakeTemplateLimit)
-        if (selectedTemplateId === templateId || resolvedTemplateId === templateId) {
-          setSelectedTemplateId(null)
-        }
-        if (nextOffset !== bakeTemplateOffset) {
-          setBakeTemplateOffset(nextOffset)
-        } else {
-          await refreshTemplates(nextOffset, templateBucket)
-        }
-      } else {
-        setTemplates(prev => prev.map(item => item.id === templateId ? adopted : item))
-      }
+      setTemplates(prev => prev.map(item => item.id === templateId ? adopted : item))
       setStatusMessage(`已采纳模板「${adopted.name}」`)
       await refreshOverview()
     } catch (error) {
@@ -556,7 +364,8 @@ const BakePanel: React.FC = () => {
       setStatusMessage('当前模板还没有关联来源时间线')
       return
     }
-    setBakeTab('memories')
+    setWindowMode('knowledge')
+    setRepositoryTab('memory')
     setSelectedMemoryId(memoryId)
     setStatusMessage('已切换到来源时间线')
   }
@@ -681,20 +490,6 @@ const BakePanel: React.FC = () => {
     }
   }
 
-  const handleSaveStyle = async (nextConfig: WritingStyleConfig) => {
-    setStyleConfig(nextConfig)
-    setIsSavingStyle(true)
-    try {
-      const saved = await updateStyleConfig(nextConfig)
-      setStyleConfig(saved)
-      setStatusMessage('已保存写作自然感提升配置')
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : '保存写作自然感失败')
-    } finally {
-      setIsSavingStyle(false)
-    }
-  }
-
   return (
     <div className="bake-panel">
       <BakeHeader />
@@ -728,34 +523,12 @@ const BakePanel: React.FC = () => {
       <div className="bake-tab-content">
         {bakeTab === 'overview' && (
           <BakeOverviewTab
-            memories={visibleMemories}
             overview={overview}
-            onOpenMemory={handleOpenMemory}
             onOpenTab={setBakeTab}
             onOpenRepository={(tab) => {
               setWindowMode('knowledge')
               setRepositoryTab(tab)
             }}
-          />
-        )}
-        {bakeTab === 'memories' && (
-          <BakeMemoriesTab
-            memories={visibleMemories}
-            total={memoryTotal}
-            offset={bakeMemoryOffset}
-            selectedMemoryId={resolvedMemoryId}
-            onSelectMemory={setSelectedMemoryId}
-            onPageChange={setBakeMemoryOffset}
-            onPromoteToTemplate={handlePromoteToTemplate}
-            onPromoteToSop={handlePromoteToSop}
-            onPromoteToKnowledge={handlePromoteToKnowledge}
-            onIgnoreMemory={handleIgnoreMemory}
-            onCopyMemory={(memory: TimelineItem) => handleCopy(`${memory.title}${memory.url ? `\n${memory.url}` : ''}`, `已复制时间线「${memory.title}」信息`)}
-            onOpenMemoryLink={handleOpenLink}
-            onInitializeMemories={handleInitializeMemories}
-            isInitializing={isInitializingMemories}
-            modelsReady={modelsReady}
-            modelStatusLoading={modelStatusLoading}
           />
         )}
         {bakeTab === 'knowledge' && (
@@ -774,6 +547,9 @@ const BakePanel: React.FC = () => {
             onSearch={handleSearchKnowledge}
             onClearFilters={handleClearKnowledgeFilters}
             onDeleteKnowledge={handleDeleteKnowledge}
+            onCreateKnowledge={(knowledge) => {
+              setStatusMessage('手工录入功能需要后端API支持，当前仅为UI演示')
+            }}
             onOpenCapture={(captureId?: string) => {
               if (!captureId) {
                 setStatusMessage('当前内容暂无关联采集记录')
@@ -782,7 +558,7 @@ const BakePanel: React.FC = () => {
               setCaptureBackTarget({
                 windowMode: 'bake',
                 bakeTab,
-                selectedMemoryId: resolvedMemoryId,
+                selectedMemoryId,
                 selectedTemplateId: resolvedTemplateId,
                 selectedSopId: resolvedSopId,
                 selectedKnowledgeId: resolvedKnowledgeId,
@@ -797,7 +573,6 @@ const BakePanel: React.FC = () => {
         )}
         {bakeTab === 'templates' && (
           <BakeTemplatesTab
-            bucket={templateBucket}
             templates={templates}
             total={templateTotal}
             offset={bakeTemplateOffset}
@@ -805,7 +580,6 @@ const BakePanel: React.FC = () => {
             query={bakeTemplateQuery}
             selectedTemplateId={resolvedTemplateId}
             onSelectTemplate={setSelectedTemplateId}
-            onBucketChange={handleTemplateBucketChange}
             onCreateTemplate={handleCreateTemplate}
             onUpdateTemplate={handleUpdateTemplate}
             onToggleTemplateStatus={handleToggleTemplateStatus}
@@ -815,13 +589,6 @@ const BakePanel: React.FC = () => {
             onPageChange={setBakeTemplateOffset}
             onLimitChange={setBakeTemplateLimit}
             onQueryChange={setBakeTemplateQuery}
-          />
-        )}
-        {bakeTab === 'style' && (
-          <BakeStyleTab
-            config={styleConfig}
-            onSave={handleSaveStyle}
-            isSaving={isSavingStyle}
           />
         )}
         {bakeTab === 'sop' && (
@@ -836,6 +603,9 @@ const BakePanel: React.FC = () => {
             onDeleteSop={handleDeleteSop}
             onViewLinkedKnowledge={handleViewLinkedKnowledge}
             onCopySteps={(candidate: SopCandidate) => handleCopy(candidate.steps.map((step, idx) => `${idx + 1}. ${step}`).join('\n'), '已复制流程步骤')}
+            onCreateSop={(sop) => {
+              setStatusMessage('手工录入功能需要后端API支持，当前仅为UI演示')
+            }}
             onPageChange={setBakeSopOffset}
             onLimitChange={setBakeSopLimit}
             onQueryChange={setBakeSopQuery}

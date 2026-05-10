@@ -91,6 +91,15 @@
             "redacted_count": { "type": "integer", "minimum": 0 },
             "redacted_types": { "type": "array", "items": { "type": "string" } }
           }
+        },
+        {
+          "title": "ProfileAnalysisResult",
+          "type": "object",
+          "required": ["type", "profile"],
+          "properties": {
+            "type":    { "const": "profile_analysis" },
+            "profile": { "type": "string" }
+          }
         }
       ]
     }

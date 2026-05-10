@@ -1,15 +1,12 @@
-import React, { useMemo } from 'react'
-import type { BakeOverview, TimelineItem } from '../../types'
+import React from 'react'
+import type { BakeOverview } from '../../types'
 import { BakeButton, BakeCard, BakePill, BakeSectionHeader } from './BakeShared'
 
 const BakeOverviewTab: React.FC<{
-  memories: TimelineItem[]
   overview: BakeOverview
-  onOpenMemory: (id: string) => void
   onOpenTab: (tab: 'knowledge' | 'templates' | 'sop') => void
   onOpenRepository: (tab: 'memory' | 'capture') => void
-}> = ({ memories, overview, onOpenMemory, onOpenTab, onOpenRepository }) => {
-  const pendingItems = useMemo(() => memories.filter(item => item.status === 'candidate').slice(0, 3), [memories])
+}> = ({ overview, onOpenTab, onOpenRepository }) => {
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -43,22 +40,44 @@ const BakeOverviewTab: React.FC<{
 
       <div className="bake-split-overview">
         <BakeCard>
-          <BakeSectionHeader title="待处理时间线" subtitle="优先把最近最有价值的时间线提炼出来" right={<BakePill text="先识别，再提炼" />} />
+          <BakeSectionHeader title="快捷操作" subtitle="快速访问各个功能区" />
           <div className="bake-list">
-            {pendingItems.map(item => (
-              <div key={item.id} className="bake-list-item">
-                <div className="bake-inline-meta">
-                  <div style={{ minWidth: 0 }}>
-                    <div className="bake-list-item__title bake-line-clamp-2">{item.title}</div>
-                    <div className="bake-muted bake-line-clamp-2">{item.summary}</div>
-                    <div className="bake-muted" style={{ marginTop: 8 }}>
-                      停留 {item.dwellSeconds}s · 打开 {item.openCount} 次 · 重复观察 {item.knowledgeRefCount} 次
-                    </div>
-                  </div>
-                  <BakeButton primary onClick={() => onOpenMemory(item.id)}>去提炼</BakeButton>
+            <div className="bake-list-item">
+              <div className="bake-inline-meta">
+                <div style={{ minWidth: 0 }}>
+                  <div className="bake-list-item__title">查看时间线</div>
+                  <div className="bake-muted">浏览和回溯时间线记录</div>
                 </div>
+                <BakeButton primary onClick={() => onOpenRepository('memory')}>打开</BakeButton>
               </div>
-            ))}
+            </div>
+            <div className="bake-list-item">
+              <div className="bake-inline-meta">
+                <div style={{ minWidth: 0 }}>
+                  <div className="bake-list-item__title">管理知识</div>
+                  <div className="bake-muted">查看和管理已提炼的知识</div>
+                </div>
+                <BakeButton primary onClick={() => onOpenTab('knowledge')}>打开</BakeButton>
+              </div>
+            </div>
+            <div className="bake-list-item">
+              <div className="bake-inline-meta">
+                <div style={{ minWidth: 0 }}>
+                  <div className="bake-list-item__title">管理设计</div>
+                  <div className="bake-muted">查看和管理设计模板</div>
+                </div>
+                <BakeButton primary onClick={() => onOpenTab('templates')}>打开</BakeButton>
+              </div>
+            </div>
+            <div className="bake-list-item">
+              <div className="bake-inline-meta">
+                <div style={{ minWidth: 0 }}>
+                  <div className="bake-list-item__title">管理操作手册</div>
+                  <div className="bake-muted">查看和管理操作手册</div>
+                </div>
+                <BakeButton primary onClick={() => onOpenTab('sop')}>打开</BakeButton>
+              </div>
+            </div>
           </div>
         </BakeCard>
 

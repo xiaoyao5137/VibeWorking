@@ -28,7 +28,7 @@ class QdrantManager:
         host: str = "localhost",
         port: int = 6333,
         collection_name: str = "memory_bread_captures",
-        vector_size: int = 1024,  # bge-m3 的向量维度
+        vector_size: int = 512,  # bge-small-zh-v1.5 的向量维度
     ):
         """
         初始化 Qdrant 管理器

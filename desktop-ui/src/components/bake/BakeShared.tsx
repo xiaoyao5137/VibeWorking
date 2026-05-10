@@ -1,4 +1,5 @@
 import React from 'react'
+import ReactMarkdown from 'react-markdown'
 import './BakePanel.css'
 
 export const BakeCard: React.FC<React.PropsWithChildren<{ className?: string }>> = ({ className = '', children }) => (
@@ -47,3 +48,13 @@ export const BakeSectionHeader: React.FC<{
     {right ? <div className="bake-section-header__right">{right}</div> : null}
   </div>
 )
+
+export const BakeMarkdown: React.FC<{ content?: string | null }> = ({ content }) => {
+  const trimmed = content?.trim()
+  if (!trimmed) return <div className="bake-muted">暂无详细内容</div>
+  return (
+    <div className="bake-markdown">
+      <ReactMarkdown>{trimmed}</ReactMarkdown>
+    </div>
+  )
+}

@@ -239,6 +239,7 @@ impl TaskRequest {
             TaskRequest::Vlm(_)     => "vlm",
             TaskRequest::Embed(_)   => "embed",
             TaskRequest::PiiScrub(_) => "pii_scrub",
+            TaskRequest::ProfileAnalysis(_) => "profile_analysis",
         }
     }
 }

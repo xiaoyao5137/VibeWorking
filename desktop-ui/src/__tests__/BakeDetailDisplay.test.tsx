@@ -46,7 +46,6 @@ describe('Bake 详情展示优化', () => {
   it('模板详情使用更明确的结构/风格说明文案', () => {
     render(
       <BakeTemplatesTab
-        bucket="extracted"
         templates={[template]}
         total={1}
         limit={20}
@@ -54,7 +53,6 @@ describe('Bake 详情展示优化', () => {
         query=""
         selectedTemplateId={template.id}
         onSelectTemplate={noop}
-        onBucketChange={noop}
         onCreateTemplate={noop}
         onUpdateTemplate={noop}
         onToggleTemplateStatus={noop}
@@ -75,7 +73,6 @@ describe('Bake 详情展示优化', () => {
   it('SOP详情不展示原始关联ID与工作提示预览', () => {
     render(
       <BakeSopTab
-        bucket="extracted"
         candidates={[sop]}
         total={1}
         limit={20}
@@ -83,9 +80,6 @@ describe('Bake 详情展示优化', () => {
         query=""
         selectedSopId={sop.id}
         onSelectSop={noop}
-        onBucketChange={noop}
-        onAdoptSop={noop}
-        onIgnoreSop={noop}
         onDeleteSop={noop}
         onViewLinkedKnowledge={noop}
         onCopySteps={noop}
@@ -109,7 +103,6 @@ describe('Bake 详情展示优化', () => {
 
     render(
       <BakeSopTab
-        bucket="extracted"
         candidates={[sop]}
         total={1}
         limit={20}
@@ -117,9 +110,6 @@ describe('Bake 详情展示优化', () => {
         query=""
         selectedSopId={sop.id}
         onSelectSop={noop}
-        onBucketChange={noop}
-        onAdoptSop={noop}
-        onIgnoreSop={noop}
         onDeleteSop={noop}
         onViewLinkedKnowledge={onViewLinkedKnowledge}
         onCopySteps={noop}

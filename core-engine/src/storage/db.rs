@@ -92,6 +92,18 @@ static MIGRATIONS: &[(&str, &str)] = &[
         "020_add_detailed_content",
         include_str!("migrations/020_add_detailed_content.sql"),
     ),
+    (
+        "021_unify_bake_designs",
+        include_str!("migrations/021_unify_bake_designs.sql"),
+    ),
+    (
+        "022_fix_bake_fts_delete_triggers",
+        include_str!("migrations/022_fix_bake_fts_delete_triggers.sql"),
+    ),
+    (
+        "023_rename_bake_run_design_count",
+        include_str!("migrations/023_rename_bake_run_design_count.sql"),
+    ),
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

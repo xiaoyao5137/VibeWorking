@@ -12,6 +12,7 @@ import DebugPanel             from './components/DebugPanel'
 import ScheduledTasksPanel    from './components/ScheduledTasksPanel'
 import MonitorPanel           from './components/MonitorPanel'
 import BakePanel              from './components/BakePanel'
+import ProfilePanel           from './components/ProfilePanel'
 import OnboardingWizard       from './components/OnboardingWizard'
 
 const App: React.FC = () => {
@@ -60,6 +61,7 @@ const App: React.FC = () => {
         {windowMode === 'tasks'     && <ScheduledTasksPanel />}
         {windowMode === 'monitor'   && <MonitorPanel />}
         {windowMode === 'bake'      && <BakePanel />}
+        {windowMode === 'profile'   && <ProfilePanel />}
       </main>
 
       <ActionConfirm />

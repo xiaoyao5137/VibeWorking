@@ -3,11 +3,11 @@
 pub mod action_log;
 pub mod bake_design;
 pub mod bake_run;
-pub mod bake_template;
 pub mod capture;
 pub mod knowledge;
 pub mod preferences;
 pub mod privacy;
 pub mod rag_session;
 pub mod style_sample;
+pub mod user_profile;
 pub mod vector_index;

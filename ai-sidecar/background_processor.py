@@ -28,6 +28,9 @@ _PROCESS_LOCK_FILE = "/tmp/memory-bread-knowledge-extract.lock"
 _DEFAULT_CORE_ENGINE_URL = "http://127.0.0.1:7070"
 _BAKE_RUN_ENDPOINT = "/api/bake/run"
 
+# 全局 embedding 信号量，限制并发数
+_embedding_semaphore = asyncio.Semaphore(2)
+
 _SELF_GENERATED_APP_KEYWORDS = (
     "memory-bread",
     "记忆面包",
@@ -702,11 +705,45 @@ class BackgroundProcessor:
 
     async def _process_vectorization_batch(self, group: list[dict]):
         """对一组 captures 批量向量化"""
+        texts = []
+        captures_with_text = []
+
         for capture in group:
             text = self._build_capture_embedding_text(capture)
             if text:
-                await self._process_vectorization(capture, text)
-                await asyncio.sleep(0.1)
+                texts.append(text)
+                captures_with_text.append(capture)
+
+        if not texts:
+            return
+
+        async with _embedding_semaphore:
+            try:
+                from embedding.model import EmbeddingModel
+                from embedding.vector_storage import get_vector_storage
+
+                model = EmbeddingModel.create_default()
+                vectors = await asyncio.to_thread(model.encode, texts)
+                storage = get_vector_storage()
+
+                for capture, vec_obj in zip(captures_with_text, vectors):
+                    if vec_obj and vec_obj.vector:
+                        try:
+                            storage.store_vector(
+                                capture_id=capture['id'],
+                                text=vec_obj.text,
+                                vector=vec_obj.vector,
+                                metadata={
+                                    "doc_key": f"capture:{capture['id']}",
+                                    "source_type": "capture",
+                                    "ts": capture.get('ts'),
+                                    "app_name": capture.get('app_name'),
+                                }
+                            )
+                        except Exception as e:
+                            logger.warning(f"⚠️ 向量存储失败，继续知识提炼: capture_id={capture['id']}")
+            except Exception as e:
+                logger.error(f"批量向量化失败: {e}")
 
     @staticmethod
     def _build_capture_embedding_text(capture: dict) -> str:
@@ -716,10 +753,10 @@ class BackgroundProcessor:
         if capture.get('window_title'):
             parts.append(f"窗口：{capture['window_title']}")
         if capture.get('ocr_text'):
-            parts.append(f"OCR：{capture['ocr_text']}")
+            parts.append(f"OCR：{capture['ocr_text'][:500]}")  # 截断 OCR
         if capture.get('ax_text'):
-            parts.append(f"AX：{capture['ax_text']}")
-        return "\n".join(part for part in parts if part)
+            parts.append(f"AX：{capture['ax_text'][:500]}")  # 截断 AX
+        return "\n".join(part for part in parts if part)[:1000]  # 总长度限制
 
     @staticmethod
     def _build_knowledge_embedding_text(group: list[dict], knowledge: dict) -> str:

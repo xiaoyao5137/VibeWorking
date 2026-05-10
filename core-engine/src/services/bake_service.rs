@@ -8,15 +8,14 @@ use crate::api::error::ApiError;
 use crate::storage::models::CaptureRecord;
 use crate::storage::{
     now_ms, BakeActivityRecord, BakeDesignRecord, BakeMemorySourceRecord, BakeOverviewRecord,
-    BakeRunRecord, BakeTemplateRecord, KnowledgeEntryRecord, NewBakeArticle, NewBakeKnowledge,
-    NewBakeRun, NewBakeSop, NewKnowledgeEntry, StorageError, StorageManager,
+    BakeRunRecord, KnowledgeEntryRecord, NewBakeDesign, NewBakeKnowledge, NewBakeRun, NewBakeSop,
+    NewKnowledgeEntry, StorageError, StorageManager,
 };
 
 const BAKE_STYLE_CONFIG_KEY: &str = "bake.style.config";
 const CATEGORY_BAKE_ARTICLE: &str = "bake_article";
 const CATEGORY_BAKE_SOP: &str = "bake_sop";
 const CATEGORY_BAKE_KNOWLEDGE: &str = "bake_knowledge";
-const CATEGORY_BAKE_DESIGN: &str = "bake_design";
 const UNIFIED_BAKE_PIPELINE_NAME: &str = "unified";
 const BAKE_GENERATION_VERSION: &str = "bake-v1";
 const MATCH_LEVEL_HIGH: &str = "high";
@@ -110,6 +109,7 @@ pub struct BakeKnowledgePayload {
     pub summary: String,
     pub overview: Option<String>,
     pub details: Option<String>,
+    pub detailed_content: Option<String>,
     pub entities: Vec<String>,
     pub category: String,
     pub importance: i64,
@@ -153,7 +153,6 @@ pub struct BakeDesignPayload {
     pub status: String,
     pub tags: Vec<String>,
     pub applicable_tasks: Vec<String>,
-    pub source_article_ids: Vec<String>,
     pub source_memory_ids: Vec<String>,
     pub source_capture_ids: Vec<String>,
     pub source_episode_ids: Vec<String>,
@@ -162,6 +161,7 @@ pub struct BakeDesignPayload {
     pub style_phrases: Vec<String>,
     pub replacement_rules: Vec<ReplacementRulePayload>,
     pub prompt_hint: Option<String>,
+    pub detailed_content: Option<String>,
     pub diagram_code: Option<String>,
     pub image_assets: Vec<String>,
     pub usage_count: i64,
@@ -219,6 +219,7 @@ pub struct BakeSopPayload {
     pub trigger_keywords: Vec<String>,
     pub confidence: String,
     pub extracted_problem: Option<String>,
+    pub detailed_content: Option<String>,
     pub steps: Vec<String>,
     pub linked_knowledge_ids: Vec<String>,
     pub linked_knowledge_summaries: Vec<BakeLinkedKnowledgeSummaryPayload>,
@@ -343,19 +344,21 @@ pub struct BakeKnowledgeArtifactPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BakeDesignArtifactPayload {
-    pub title: String,
-    pub summary: String,
-    pub content: String,
-    pub design_type: Option<String>,
+    pub name: String,
+    pub category: Option<String>,
+    pub details: Option<String>,
+    pub prompt_hint: Option<String>,
     pub status: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
-    pub key_decisions: Vec<String>,
+    pub applicable_tasks: Vec<String>,
     #[serde(default)]
-    pub technologies: Vec<String>,
+    pub structure_sections: Vec<DesignSectionPayload>,
     #[serde(default)]
-    pub entities: Vec<String>,
+    pub style_phrases: Vec<String>,
+    #[serde(default)]
+    pub replacement_rules: Vec<ReplacementRulePayload>,
     pub diagram_code: Option<String>,
     pub evidence_summary: Option<String>,
     pub match_score: Option<f64>,
@@ -475,27 +478,27 @@ impl BakeService {
         Ok(config.clone())
     }
 
-    pub fn list_templates(&self) -> Result<Vec<BakeDesignPayload>, ApiError> {
+    pub fn list_designs(&self) -> Result<Vec<BakeDesignPayload>, ApiError> {
         Ok(self
             .storage
-            .list_bake_templates()?
+            .list_bake_designs()?
             .into_iter()
-            .filter(is_current_bake_template)
-            .map(map_template_record)
+            .filter(is_current_bake_design)
+            .map(map_design_record)
             .collect())
     }
 
-    pub fn list_templates_paginated(
+    pub fn list_designs_paginated(
         &self,
         filter: BakeListFilter,
     ) -> Result<BakePagedResponse<BakeDesignPayload>, ApiError> {
         let mut items = self
             .storage
-            .list_bake_templates()?
+            .list_bake_designs()?
             .into_iter()
-            .filter(is_current_bake_template)
-            .filter(|record| matches_template_bucket(record, filter.bucket))
-            .map(map_template_record)
+            .filter(is_current_bake_design)
+            .filter(|record| matches_design_bucket(record, filter.bucket))
+            .map(map_design_record)
             .collect::<Vec<_>>();
 
         if let Some(query) = filter.q.as_deref() {
@@ -526,24 +529,66 @@ impl BakeService {
         })
     }
 
-    pub fn create_template(&self, _payload: CreateOrUpdateDesignRequest) -> Result<BakeDesignPayload, ApiError> {
-        Err(ApiError::Internal("Design CRUD not yet implemented".to_string()))
+    pub fn create_design(
+        &self,
+        payload: CreateOrUpdateDesignRequest,
+    ) -> Result<BakeDesignPayload, ApiError> {
+        let record = request_to_new_design(payload)?;
+        let id = self.storage.insert_bake_design(&record)?;
+        let created = self
+            .storage
+            .get_bake_design(id)?
+            .ok_or_else(|| ApiError::NotFound(format!("design {id} not found after insert")))?;
+        Ok(map_design_record(created))
     }
 
-    pub fn adopt_template(&self, _id: i64) -> Result<BakeDesignPayload, ApiError> {
-        Err(ApiError::Internal("Design CRUD not yet implemented".to_string()))
+    pub fn adopt_design(&self, id: i64) -> Result<BakeDesignPayload, ApiError> {
+        let mut record = self
+            .storage
+            .get_bake_design(id)?
+            .ok_or_else(|| ApiError::NotFound(format!("design {id} not found")))?;
+        record.review_status = "confirmed".to_string();
+        if record.status == "draft" {
+            record.status = "enabled".to_string();
+        }
+        let update = bake_design_record_to_new(record);
+        self.storage.update_bake_design(id, &update)?;
+        let updated = self
+            .storage
+            .get_bake_design(id)?
+            .ok_or_else(|| ApiError::NotFound(format!("design {id} not found after update")))?;
+        Ok(map_design_record(updated))
     }
 
-    pub fn update_template(&self, _id: i64, _payload: CreateOrUpdateDesignRequest) -> Result<BakeDesignPayload, ApiError> {
-        Err(ApiError::Internal("Design CRUD not yet implemented".to_string()))
+    pub fn update_design(
+        &self,
+        id: i64,
+        payload: CreateOrUpdateDesignRequest,
+    ) -> Result<BakeDesignPayload, ApiError> {
+        let record = request_to_new_design(payload)?;
+        if !self.storage.update_bake_design(id, &record)? {
+            return Err(ApiError::NotFound(format!("design {id} not found")));
+        }
+        let updated = self
+            .storage
+            .get_bake_design(id)?
+            .ok_or_else(|| ApiError::NotFound(format!("design {id} not found after update")))?;
+        Ok(map_design_record(updated))
     }
 
-    pub fn toggle_template_status(&self, _id: i64) -> Result<BakeDesignPayload, ApiError> {
-        Err(ApiError::Internal("Design CRUD not yet implemented".to_string()))
+    pub fn toggle_design_status(&self, id: i64) -> Result<BakeDesignPayload, ApiError> {
+        let design = self
+            .storage
+            .toggle_bake_design_status(id)?
+            .ok_or_else(|| ApiError::NotFound(format!("design {id} not found")))?;
+        Ok(map_design_record(design))
     }
 
-    pub fn delete_template(&self, _id: i64) -> Result<(), ApiError> {
-        Err(ApiError::Internal("Design CRUD not yet implemented".to_string()))
+    pub fn delete_design(&self, id: i64) -> Result<(), ApiError> {
+        if !self.storage.soft_delete_bake_design(id)? {
+            return Err(ApiError::NotFound(format!("design {id} not found")));
+        }
+        Ok(())
     }
     pub fn list_sops(&self) -> Result<Vec<BakeSopPayload>, ApiError> {
         Ok(self
@@ -646,47 +691,6 @@ impl BakeService {
 
     pub fn delete_sop(&self, id: i64) -> Result<(), ApiError> {
         self.delete_bake_artifact(id, CATEGORY_BAKE_SOP)
-    }
-
-    pub fn list_designs_paginated(
-        &self,
-        filter: BakeListFilter,
-    ) -> Result<BakePagedResponse<BakeDesignPayload>, ApiError> {
-        let records = self.storage.list_bake_designs()?;
-        let filtered_records = if let Some(query) = filter.q.as_deref() {
-            let query_lower = query.to_lowercase();
-            records
-                .into_iter()
-                .filter(|record| {
-                    record.title.to_lowercase().contains(&query_lower)
-                        || record.summary.to_lowercase().contains(&query_lower)
-                        || record.content.to_lowercase().contains(&query_lower)
-                })
-                .collect::<Vec<_>>()
-        } else {
-            records
-        };
-        let total = filtered_records.len() as i64;
-        let items = filtered_records
-            .into_iter()
-            .skip(filter.offset)
-            .take(filter.limit)
-            .map(map_design_record)
-            .collect();
-        Ok(BakePagedResponse {
-            items,
-            total,
-            limit: filter.limit,
-            offset: filter.offset,
-        })
-    }
-
-    pub fn adopt_design(&self, _id: i64) -> Result<BakeDesignPayload, ApiError> {
-        Err(ApiError::BadRequest("adopt_design not yet implemented".to_string()))
-    }
-
-    pub fn delete_design(&self, _id: i64) -> Result<(), ApiError> {
-        Err(ApiError::BadRequest("delete_design not yet implemented".to_string()))
     }
 
     pub fn list_memories(&self) -> Result<Vec<BakeMemoryPayload>, ApiError> {
@@ -921,8 +925,86 @@ impl BakeService {
         Ok(())
     }
 
-    pub fn promote_memory_to_template(&self, _id: i64) -> Result<BakeDesignPayload, ApiError> {
-        Err(ApiError::Internal("Design promotion not yet implemented".to_string()))
+    pub fn promote_memory_to_design(&self, id: i64) -> Result<BakeDesignPayload, ApiError> {
+        let memory = self
+            .storage
+            .get_knowledge_entry(id)?
+            .ok_or_else(|| ApiError::NotFound(format!("memory {id} not found")))?;
+        if memory.category != CATEGORY_BAKE_ARTICLE {
+            return Err(ApiError::BadRequest(format!(
+                "knowledge {id} is not in category {CATEGORY_BAKE_ARTICLE}"
+            )));
+        }
+
+        let payload = map_memory_record(memory.clone());
+        let source_memory_ids = vec![id.to_string()];
+        let source_capture_ids = payload
+            .source_capture_id
+            .clone()
+            .map(|value| vec![value])
+            .unwrap_or_default();
+        let linked_knowledge_ids = payload
+            .source_knowledge_id
+            .clone()
+            .map(|value| vec![value])
+            .unwrap_or_default();
+        let structure_sections = vec![
+            DesignSectionPayload {
+                title: "可复用结构".to_string(),
+                keywords: payload.tags.clone(),
+                notes: memory.overview.clone(),
+            },
+            DesignSectionPayload {
+                title: "写作参考".to_string(),
+                keywords: vec!["表达风格".to_string(), "行文脉络".to_string()],
+                notes: Some("从该时间线手动沉淀，后续可继续补充章节与表达规则。".to_string()),
+            },
+        ];
+        let detailed_content = format!(
+            "## 模板价值\n\n{}\n\n## 使用建议\n\n- 参考该时间线的结构和表达方式生成新的方案、设计或汇报文档。\n- 后续可继续补充章节标题、常用表达和 AI 替代词规则。",
+            memory
+                .overview
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(&memory.summary)
+        );
+
+        let design = NewBakeDesign {
+            name: memory.summary,
+            category: "手动沉淀".to_string(),
+            status: "draft".to_string(),
+            tags: to_json_string(&payload.tags)?,
+            applicable_tasks: to_json_string(&vec![
+                "方案撰写".to_string(),
+                "设计文档".to_string(),
+                "汇报总结".to_string(),
+            ])?,
+            source_memory_ids: to_json_string(&source_memory_ids)?,
+            source_capture_ids: to_json_string(&source_capture_ids)?,
+            source_episode_ids: to_json_string(&source_memory_ids)?,
+            linked_knowledge_ids: to_json_string(&linked_knowledge_ids)?,
+            structure_sections: to_json_string(&structure_sections)?,
+            style_phrases: "[]".to_string(),
+            replacement_rules: "[]".to_string(),
+            prompt_hint: Some("参考该时间线的结构、行文脉络和表达风格生成新文档。".to_string()),
+            detailed_content: Some(detailed_content),
+            diagram_code: None,
+            image_assets: "[]".to_string(),
+            usage_count: 0,
+            match_score: None,
+            match_level: None,
+            creation_mode: "manual".to_string(),
+            review_status: "candidate".to_string(),
+            evidence_summary: Some("由用户从收藏时间线手动沉淀为设计。".to_string()),
+            generation_version: None,
+            deleted_at: None,
+        };
+        let design_id = self.storage.insert_bake_design(&design)?;
+        let created = self
+            .storage
+            .get_bake_design(design_id)?
+            .ok_or_else(|| ApiError::NotFound(format!("design {design_id} not found after insert")))?;
+        Ok(map_design_record(created))
     }
 
     pub fn promote_memory_to_sop(&self, id: i64) -> Result<BakeSopPayload, ApiError> {
@@ -1026,7 +1108,7 @@ impl BakeService {
             .list_knowledge_by_category(CATEGORY_BAKE_ARTICLE)?;
         let existing_sops = self.storage.list_knowledge_by_category(CATEGORY_BAKE_SOP)?;
         let existing_knowledge = self.storage.list_bake_knowledge_paginated(None, 500, 0)?;
-        let existing_templates = self.storage.list_bake_templates()?;
+        let existing_designs = self.storage.list_bake_designs()?;
         let watermark = self
             .storage
             .get_bake_watermark(UNIFIED_BAKE_PIPELINE_NAME)?;
@@ -1035,8 +1117,8 @@ impl BakeService {
         let mut existing_sop_sources = collect_current_bake_source_knowledge_ids(&existing_sops);
         let mut existing_knowledge_sources =
             collect_current_bake_source_knowledge_ids(&existing_knowledge);
-        let mut existing_template_sources =
-            collect_current_template_source_knowledge_ids(&existing_templates);
+        let mut existing_design_sources =
+            collect_current_design_source_knowledge_ids(&existing_designs);
         let mut max_processed_ts = watermark
             .as_ref()
             .map(|item| item.last_processed_ts)
@@ -1087,7 +1169,7 @@ impl BakeService {
                 trigger_reason,
                 extracted,
                 &mut existing_knowledge_sources,
-                &mut existing_template_sources,
+                &mut existing_design_sources,
                 &mut existing_sop_sources,
             )?;
 
@@ -1170,7 +1252,7 @@ impl BakeService {
         trigger_reason: &str,
         extracted: BakeExtractResponse,
         existing_knowledge_sources: &mut std::collections::HashSet<i64>,
-        existing_template_sources: &mut std::collections::HashSet<i64>,
+        existing_design_sources: &mut std::collections::HashSet<i64>,
         existing_sop_sources: &mut std::collections::HashSet<i64>,
     ) -> Result<CandidatePersistResult, ApiError> {
         let mut result = CandidatePersistResult::default();
@@ -1186,7 +1268,7 @@ impl BakeService {
             memory_id,
             candidate,
             &extracted.design,
-            existing_template_sources,
+            existing_design_sources,
         )?);
         result.apply(self.persist_sop_artifact(
             memory_id,
@@ -1261,7 +1343,7 @@ impl BakeService {
 
         let payload = extraction.payload.clone().ok_or_else(|| {
             ApiError::Internal(
-                "bake sidecar 返回 template.accepted=true 但缺少 payload".to_string(),
+                "bake sidecar 返回 design.accepted=true 但缺少 payload".to_string(),
             )
         })?;
         let payload: BakeDesignArtifactPayload = serde_json::from_value(payload)
@@ -1280,7 +1362,7 @@ impl BakeService {
             payload.match_level.as_deref(),
         );
         let design = build_bake_design(candidate, &payload, &review_status)?;
-        self.storage.insert_bake_article(&design)?;
+        self.storage.insert_bake_design(&design)?;
         existing_sources.insert(candidate.knowledge.id);
         Ok(CandidatePersistResult::created_design(
             review_status == "auto_created",
@@ -1351,6 +1433,16 @@ impl BakeService {
             format!("{artifact_kind}_match_level"),
             match_level.map_or(Value::Null, |value| Value::String(value.to_string())),
         );
+        if artifact_kind == "design" {
+            next_details.insert(
+                "template_match_score".to_string(),
+                match_score.map_or(Value::Null, Value::from),
+            );
+            next_details.insert(
+                "template_match_level".to_string(),
+                match_level.map_or(Value::Null, |value| Value::String(value.to_string())),
+            );
+        }
         self.storage.update_knowledge_details_system(
             memory_id,
             &entry.summary,
@@ -1383,9 +1475,9 @@ impl BakeService {
             .collect::<Vec<_>>();
         let templates = self
             .storage
-            .list_bake_templates()?
+            .list_bake_designs()?
             .into_iter()
-            .filter(is_current_bake_template)
+            .filter(is_current_bake_design)
             .collect::<Vec<_>>();
         let latest_run = self.storage.get_latest_bake_run()?;
         let memory_count = memory_entries.len() as i64;
@@ -1685,25 +1777,12 @@ fn is_high_match_candidate(match_score: Option<f64>, match_level: Option<&str>) 
     level_is_high && score_is_high
 }
 
-fn collect_template_source_knowledge_ids(
-    records: &[BakeTemplateRecord],
+fn collect_current_design_source_knowledge_ids(
+    records: &[BakeDesignRecord],
 ) -> std::collections::HashSet<i64> {
     records
         .iter()
-        .flat_map(|record| {
-            parse_json_vec_string(&record.source_memory_ids)
-                .into_iter()
-                .filter_map(|value| value.parse::<i64>().ok())
-        })
-        .collect()
-}
-
-fn collect_current_template_source_knowledge_ids(
-    records: &[BakeTemplateRecord],
-) -> std::collections::HashSet<i64> {
-    records
-        .iter()
-        .filter(|record| is_current_bake_template(record))
+        .filter(|record| is_current_bake_design(record))
         .flat_map(|record| {
             parse_json_vec_string(&record.source_memory_ids)
                 .into_iter()
@@ -1761,22 +1840,42 @@ fn build_bake_design(
     source: &BakeMemorySourceRecord,
     payload: &BakeDesignArtifactPayload,
     review_status: &str,
-) -> Result<NewBakeArticle, ApiError> {
-    let entities = if payload.entities.is_empty() {
+) -> Result<NewBakeDesign, ApiError> {
+    let tags = if payload.tags.is_empty() {
         parse_json_vec_string(&source.knowledge.entities)
     } else {
-        payload.entities.clone()
+        payload.tags.clone()
     };
+    let source_memory_ids = vec![source.knowledge.id.to_string()];
     let source_capture_ids = vec![source.knowledge.capture_id.to_string()];
-    Ok(NewBakeArticle {
-        timeline_id: source.knowledge.id,
-        title: payload.title.clone(),
-        summary: payload.summary.clone(),
-        content: Some(payload.content.clone()),
-        detailed_content: None,
-        entities: to_json_string(&entities)?,
-        importance: source.knowledge.importance,
-        source_capture_ids: Some(to_json_string(&source_capture_ids)?),
+    Ok(NewBakeDesign {
+        name: payload.name.clone(),
+        category: payload
+            .category
+            .clone()
+            .unwrap_or_else(|| "文档模板".to_string()),
+        status: payload.status.clone().unwrap_or_else(|| "draft".to_string()),
+        tags: to_json_string(&tags)?,
+        applicable_tasks: to_json_string(&payload.applicable_tasks)?,
+        source_memory_ids: to_json_string(&source_memory_ids)?,
+        source_capture_ids: to_json_string(&source_capture_ids)?,
+        source_episode_ids: to_json_string(&source_memory_ids)?,
+        linked_knowledge_ids: to_json_string(&source_memory_ids)?,
+        structure_sections: to_json_string(&payload.structure_sections)?,
+        style_phrases: to_json_string(&payload.style_phrases)?,
+        replacement_rules: to_json_string(&payload.replacement_rules)?,
+        prompt_hint: payload.prompt_hint.clone(),
+        detailed_content: payload.details.clone(),
+        diagram_code: payload.diagram_code.clone(),
+        image_assets: "[]".to_string(),
+        usage_count: 0,
+        match_score: payload.match_score,
+        match_level: payload.match_level.clone(),
+        creation_mode: "llm_bake".to_string(),
+        review_status: review_status.to_string(),
+        evidence_summary: payload.evidence_summary.clone(),
+        generation_version: Some(BAKE_GENERATION_VERSION.to_string()),
+        deleted_at: None,
     })
 }
 
@@ -1862,12 +1961,6 @@ fn format_bake_run_activity(run: &BakeRunRecord) -> String {
     }
 }
 
-fn template_uses_source(template: &BakeTemplateRecord, source_knowledge_id: i64) -> bool {
-    parse_json_vec_string(&template.source_memory_ids)
-        .iter()
-        .any(|value| value == &source_knowledge_id.to_string())
-}
-
 fn map_capture_record(
     record: CaptureRecord,
     linked_knowledge: Option<&(i64, String)>,
@@ -1914,19 +2007,23 @@ pub struct CreateOrUpdateDesignRequest {
     pub tags: Vec<String>,
     pub applicable_tasks: Vec<String>,
     #[serde(default)]
-    pub source_article_ids: Vec<String>,
-    #[serde(default)]
     pub source_memory_ids: Vec<String>,
     #[serde(default)]
     pub source_capture_ids: Vec<String>,
     #[serde(default)]
     pub source_episode_ids: Vec<String>,
+    #[serde(default)]
     pub linked_knowledge_ids: Vec<String>,
+    #[serde(default)]
     pub structure_sections: Vec<DesignSectionPayload>,
+    #[serde(default)]
     pub style_phrases: Vec<String>,
+    #[serde(default)]
     pub replacement_rules: Vec<ReplacementRulePayload>,
     pub prompt_hint: Option<String>,
+    pub detailed_content: Option<String>,
     pub diagram_code: Option<String>,
+    #[serde(default)]
     pub image_assets: Vec<String>,
     pub usage_count: Option<i64>,
     pub match_score: Option<f64>,
@@ -1938,12 +2035,65 @@ pub struct CreateOrUpdateDesignRequest {
     pub deleted_at: Option<i64>,
 }
 
-// Placeholder functions for design CRUD - not yet implemented
-fn request_to_new_template(_payload: CreateOrUpdateDesignRequest) -> Result<NewBakeArticle, ApiError> {
-    Err(ApiError::Internal("Design CRUD not yet implemented".to_string()))
+fn request_to_new_design(payload: CreateOrUpdateDesignRequest) -> Result<NewBakeDesign, ApiError> {
+    Ok(NewBakeDesign {
+        name: payload.name,
+        category: payload.category,
+        status: payload.status,
+        tags: to_json_string(&payload.tags)?,
+        applicable_tasks: to_json_string(&payload.applicable_tasks)?,
+        source_memory_ids: to_json_string(&payload.source_memory_ids)?,
+        source_capture_ids: to_json_string(&payload.source_capture_ids)?,
+        source_episode_ids: to_json_string(&payload.source_episode_ids)?,
+        linked_knowledge_ids: to_json_string(&payload.linked_knowledge_ids)?,
+        structure_sections: to_json_string(&payload.structure_sections)?,
+        style_phrases: to_json_string(&payload.style_phrases)?,
+        replacement_rules: to_json_string(&payload.replacement_rules)?,
+        prompt_hint: payload.prompt_hint,
+        detailed_content: payload.detailed_content,
+        diagram_code: payload.diagram_code,
+        image_assets: to_json_string(&payload.image_assets)?,
+        usage_count: payload.usage_count.unwrap_or(0),
+        match_score: payload.match_score,
+        match_level: payload.match_level,
+        creation_mode: payload.creation_mode.unwrap_or_else(|| "manual".to_string()),
+        review_status: payload.review_status.unwrap_or_else(|| "draft".to_string()),
+        evidence_summary: payload.evidence_summary,
+        generation_version: payload.generation_version,
+        deleted_at: payload.deleted_at,
+    })
 }
 
-fn map_template_record(record: BakeTemplateRecord) -> BakeDesignPayload {
+fn bake_design_record_to_new(record: BakeDesignRecord) -> NewBakeDesign {
+    NewBakeDesign {
+        name: record.name,
+        category: record.category,
+        status: record.status,
+        tags: record.tags,
+        applicable_tasks: record.applicable_tasks,
+        source_memory_ids: record.source_memory_ids,
+        source_capture_ids: record.source_capture_ids,
+        source_episode_ids: record.source_episode_ids,
+        linked_knowledge_ids: record.linked_knowledge_ids,
+        structure_sections: record.structure_sections,
+        style_phrases: record.style_phrases,
+        replacement_rules: record.replacement_rules,
+        prompt_hint: record.prompt_hint,
+        detailed_content: record.detailed_content,
+        diagram_code: record.diagram_code,
+        image_assets: record.image_assets,
+        usage_count: record.usage_count,
+        match_score: record.match_score,
+        match_level: record.match_level,
+        creation_mode: record.creation_mode,
+        review_status: record.review_status,
+        evidence_summary: record.evidence_summary,
+        generation_version: record.generation_version,
+        deleted_at: record.deleted_at,
+    }
+}
+
+fn map_design_record(record: BakeDesignRecord) -> BakeDesignPayload {
     use chrono::{DateTime, Utc};
     let updated_at = DateTime::<Utc>::from_timestamp(record.updated_at / 1000, 0)
         .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
@@ -1956,7 +2106,6 @@ fn map_template_record(record: BakeTemplateRecord) -> BakeDesignPayload {
         status: record.status,
         tags: parse_json_vec_string(&record.tags),
         applicable_tasks: parse_json_vec_string(&record.applicable_tasks),
-        source_article_ids: Vec::new(),
         source_memory_ids: parse_json_vec_string(&record.source_memory_ids),
         source_capture_ids: parse_json_vec_string(&record.source_capture_ids),
         source_episode_ids: parse_json_vec_string(&record.source_episode_ids),
@@ -1965,6 +2114,7 @@ fn map_template_record(record: BakeTemplateRecord) -> BakeDesignPayload {
         style_phrases: parse_json_vec_string(&record.style_phrases),
         replacement_rules: serde_json::from_str(&record.replacement_rules).unwrap_or_default(),
         prompt_hint: record.prompt_hint,
+        detailed_content: record.detailed_content,
         diagram_code: record.diagram_code,
         image_assets: parse_json_vec_string(&record.image_assets),
         usage_count: record.usage_count,
@@ -2088,6 +2238,7 @@ fn map_bake_knowledge_record(record: KnowledgeEntryRecord) -> BakeKnowledgePaylo
         summary: record.summary,
         overview: record.overview,
         details: record.details,
+        detailed_content: record.detailed_content,
         entities: parse_json_vec_string(&record.entities),
         category: record.category,
         importance: record.importance,
@@ -2138,6 +2289,7 @@ fn map_sop_record_with_linked_summaries(
             .map(ToString::to_string)
             .unwrap_or_else(|| infer_confidence(record.importance, record.occurrence_count)),
         extracted_problem: Some(record.summary),
+        detailed_content: record.detailed_content,
         steps: details
             .get("steps")
             .and_then(|value| serde_json::from_value::<Vec<String>>(value.clone()).ok())
@@ -2155,112 +2307,6 @@ fn map_sop_record_with_linked_summaries(
                     "candidate".to_string()
                 }
             }),
-    }
-}
-
-fn map_design_record_with_linked_summaries(
-    _storage: &StorageManager,
-    record: KnowledgeEntryRecord,
-) -> BakeDesignPayload {
-    let details = parse_details(record.details.as_deref());
-
-    BakeDesignPayload {
-        id: record.id.to_string(),
-        name: record.summary.clone(),
-        category: record.category,
-        status: details
-            .get("status")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-            .unwrap_or_else(|| {
-                if record.user_verified {
-                    "confirmed".to_string()
-                } else {
-                    "candidate".to_string()
-                }
-            }),
-        tags: parse_json_vec_string(&record.entities),
-        applicable_tasks: Vec::new(),
-        source_article_ids: Vec::new(),
-        source_memory_ids: Vec::new(),
-        source_capture_ids: details
-            .get("source_capture_ids")
-            .and_then(|value| serde_json::from_value::<Vec<String>>(value.clone()).ok())
-            .unwrap_or_default(),
-        source_episode_ids: details
-            .get("source_episode_ids")
-            .and_then(|value| serde_json::from_value::<Vec<String>>(value.clone()).ok())
-            .unwrap_or_default(),
-        linked_knowledge_ids: details
-            .get("linked_knowledge_ids")
-            .and_then(|value| serde_json::from_value::<Vec<String>>(value.clone()).ok())
-            .unwrap_or_default(),
-        structure_sections: Vec::new(),
-        style_phrases: Vec::new(),
-        replacement_rules: Vec::new(),
-        prompt_hint: record.overview,
-        diagram_code: details
-            .get("diagram_code")
-            .and_then(Value::as_str)
-            .map(ToString::to_string),
-        image_assets: Vec::new(),
-        usage_count: 0,
-        match_score: details.get("match_score").and_then(Value::as_f64),
-        match_level: details
-            .get("match_level")
-            .and_then(Value::as_str)
-            .map(ToString::to_string),
-        creation_mode: details
-            .get("creation_mode")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-            .unwrap_or_else(|| "auto".to_string()),
-        review_status: details
-            .get("review_status")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-            .unwrap_or_else(|| "draft".to_string()),
-        evidence_summary: details
-            .get("evidence_summary")
-            .and_then(Value::as_str)
-            .map(ToString::to_string),
-        generation_version: details
-            .get("generation_version")
-            .and_then(Value::as_str)
-            .map(ToString::to_string),
-        deleted_at: None,
-        updated_at: record.created_at,
-    }
-}
-
-fn map_design_record(record: BakeDesignRecord) -> BakeDesignPayload {
-    BakeDesignPayload {
-        id: record.id.to_string(),
-        name: record.title,
-        category: record.design_type.unwrap_or_else(|| "general".to_string()),
-        status: record.status,
-        tags: parse_json_vec_string(&record.tags),
-        applicable_tasks: Vec::new(),
-        source_article_ids: Vec::new(),
-        source_memory_ids: Vec::new(),
-        source_capture_ids: parse_json_vec_string(&record.source_capture_ids),
-        source_episode_ids: parse_json_vec_string(&record.source_episode_ids),
-        linked_knowledge_ids: Vec::new(),
-        structure_sections: Vec::new(),
-        style_phrases: Vec::new(),
-        replacement_rules: Vec::new(),
-        prompt_hint: Some(record.summary),
-        diagram_code: record.diagram_code,
-        image_assets: Vec::new(),
-        usage_count: 0,
-        match_score: record.match_score,
-        match_level: record.match_level,
-        creation_mode: record.creation_mode,
-        review_status: record.review_status,
-        evidence_summary: record.evidence_summary,
-        generation_version: record.generation_version,
-        deleted_at: record.deleted_at,
-        updated_at: record.updated_at,
     }
 }
 
@@ -2466,16 +2512,16 @@ fn is_legacy_bake_entry_details(details: &Value) -> bool {
             == Some(BAKE_GENERATION_VERSION)
 }
 
-fn is_current_bake_template(record: &BakeTemplateRecord) -> bool {
-    !is_legacy_bake_template(record)
+fn is_current_bake_design(record: &BakeDesignRecord) -> bool {
+    !is_legacy_bake_design(record)
 }
 
-fn is_legacy_bake_template(record: &BakeTemplateRecord) -> bool {
+fn is_legacy_bake_design(record: &BakeDesignRecord) -> bool {
     record.creation_mode == "auto"
         && record.generation_version.as_deref() == Some(BAKE_GENERATION_VERSION)
 }
 
-fn matches_template_bucket(record: &BakeTemplateRecord, bucket: Option<BakeBucket>) -> bool {
+fn matches_design_bucket(record: &BakeDesignRecord, bucket: Option<BakeBucket>) -> bool {
     match bucket {
         None => record.review_status != "ignored",
         Some(BakeBucket::Pending) => record.review_status == "candidate",

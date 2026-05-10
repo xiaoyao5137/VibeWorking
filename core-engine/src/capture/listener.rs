@@ -43,10 +43,10 @@ impl Default for ListenerConfig {
 
 /// 启动事件监听器（自适应采集策略）
 ///
-/// 根据系统内存压力动态调整采集间隔：
+/// 根据系统内存压力动态调整采集间隔（包含压缩内存）：
 /// - 正常 (< 70%): 60 秒
 /// - 高压 (70-85%): 180 秒
-/// - 危险 (> 85%): 300 秒
+/// - 危险 (>= 85%): 跳过采集
 pub async fn start_listener(config: ListenerConfig, tx: mpsc::Sender<CaptureEvent>) {
     info!(
         "启动自适应事件监听器，基础间隔: {} 秒",
@@ -133,6 +133,7 @@ fn get_memory_pressure() -> MemoryPressure {
     let mut pages_active = 0u64;
     let mut pages_inactive = 0u64;
     let mut pages_wired = 0u64;
+    let mut pages_compressed = 0u64;  // 压缩内存
     let mut page_size = 4096u64;
 
     for line in stdout.lines() {
@@ -148,21 +149,26 @@ fn get_memory_pressure() -> MemoryPressure {
             pages_inactive = parse_vm_stat_value(line);
         } else if line.starts_with("Pages wired down:") {
             pages_wired = parse_vm_stat_value(line);
+        } else if line.starts_with("Pages stored in compressor:") {
+            pages_compressed = parse_vm_stat_value(line);
         }
     }
 
+    // macOS 内存模型：total = free + active + inactive + wired
+    // compressed 是从 inactive 压缩出来的，不应重复计入 total
     let total_pages = pages_free + pages_active + pages_inactive + pages_wired;
     if total_pages == 0 {
         return MemoryPressure::Normal;
     }
 
+    // 真实使用 = active + wired（不包含 compressed，避免重复计算）
     let used_pages = pages_active + pages_wired;
     let usage_percent = (used_pages * 100) / total_pages;
 
     match usage_percent {
-        0..=69 => MemoryPressure::Normal,
-        70..=84 => MemoryPressure::High,
-        _ => MemoryPressure::Critical,
+        0..=69 => MemoryPressure::Normal,   // < 70%
+        70..=84 => MemoryPressure::High,    // 70-85%
+        _ => MemoryPressure::Critical,      // >= 85%
     }
 }
 
@@ -181,13 +187,34 @@ fn get_memory_pressure() -> MemoryPressure {
 
 /// 获取系统空闲时间（秒）
 ///
-/// macOS: 禁用 ioreg 调用（可能导致系统不稳定），始终返回 0
+/// macOS: 使用 ioreg 命令（低频调用安全）
 /// 其他平台: 返回 Err
 #[cfg(target_os = "macos")]
 fn get_system_idle_time() -> Result<u64, ()> {
-    // FIXME: ioreg 高频调用会导致 IOHIDSystem 驱动负载过高，可能触发系统死机
-    // 临时禁用空闲检测，后续改用 CGEventSource API
-    Ok(0)
+    use std::process::Command;
+
+    // 使用 ioreg 查询 HIDIdleTime（单位：纳秒）
+    // 注意：此方法仅在低频调用（>= 60 秒间隔）时安全
+    let output = Command::new("ioreg")
+        .args(["-c", "IOHIDSystem", "-d", "1"])
+        .output()
+        .map_err(|_| ())?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    for line in stdout.lines() {
+        if line.contains("HIDIdleTime") {
+            // 格式: "HIDIdleTime" = 12345678901234
+            if let Some(value_str) = line.split('=').nth(1) {
+                let value_str = value_str.trim();
+                if let Ok(idle_ns) = value_str.parse::<u64>() {
+                    return Ok(idle_ns / 1_000_000_000); // 纳秒转秒
+                }
+            }
+        }
+    }
+
+    Err(())
 }
 
 #[cfg(not(target_os = "macos"))]

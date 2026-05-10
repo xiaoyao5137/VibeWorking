@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import type { ArticleTemplate, BakeBucket } from '../../types'
-import { BakeButton, BakeCard, BakePill, BakeSectionHeader } from './BakeShared'
+import type { ArticleTemplate } from '../../types'
+import { BakeButton, BakeCard, BakeMarkdown, BakePill, BakeSectionHeader } from './BakeShared'
 
 const formatTemplateStatus = (status: ArticleTemplate['status']) => {
   if (status === 'enabled') return '已启用'
@@ -21,21 +21,7 @@ const formatReviewStatus = (status?: string) => {
   return status
 }
 
-const bucketMeta: Record<BakeBucket, { title: string; subtitle: string; empty: string }> = {
-  extracted: {
-    title: '已提炼',
-    subtitle: '内容生成时会优先参考这些已入库模板',
-    empty: '当前还没有已提炼模板。',
-  },
-  pending: {
-    title: '待提炼',
-    subtitle: '这里展示待确认候选模板，可直接采纳或忽略',
-    empty: '当前还没有待提炼模板候选。',
-  },
-}
-
 const BakeTemplatesTab: React.FC<{
-  bucket: BakeBucket
   templates: ArticleTemplate[]
   total: number
   limit: number
@@ -43,7 +29,6 @@ const BakeTemplatesTab: React.FC<{
   query: string
   selectedTemplateId: string | null
   onSelectTemplate: (id: string | null) => void
-  onBucketChange: (bucket: BakeBucket) => void
   onCreateTemplate: () => void
   onUpdateTemplate: (templateId: string, updater: (template: ArticleTemplate) => ArticleTemplate) => void
   onToggleTemplateStatus: (templateId: string) => void
@@ -54,7 +39,6 @@ const BakeTemplatesTab: React.FC<{
   onLimitChange: (limit: number) => void
   onQueryChange: (query: string) => void
 }> = ({
-  bucket,
   templates,
   total,
   limit,
@@ -62,7 +46,6 @@ const BakeTemplatesTab: React.FC<{
   query,
   selectedTemplateId,
   onSelectTemplate,
-  onBucketChange,
   onCreateTemplate,
   onUpdateTemplate,
   onToggleTemplateStatus,
@@ -144,13 +127,6 @@ const BakeTemplatesTab: React.FC<{
         />
         <div className="bake-list-toolbar">
           <div className="bake-list-toolbar__filters">
-            <label className="bake-form-field bake-filter-field">
-              <span className="bake-filter-label">分组</span>
-              <div className="bake-segmented-actions">
-                <BakeButton compact active={bucket === 'extracted'} onClick={() => onBucketChange('extracted')}>已提炼</BakeButton>
-                <BakeButton compact active={bucket === 'pending'} onClick={() => onBucketChange('pending')}>待提炼</BakeButton>
-              </div>
-            </label>
             <label className="bake-form-field bake-filter-field bake-filter-field--search">
               <span className="bake-filter-label">关键词</span>
               <input
@@ -170,7 +146,7 @@ const BakeTemplatesTab: React.FC<{
         <BakeCard className="bake-knowledge-list-card">
         <div className="bake-list bake-knowledge-list">
           {templates.length === 0 ? (
-            <div className="bake-muted">{query.trim() ? '当前筛选条件下没有模板。' : bucketMeta[bucket].empty}</div>
+            <div className="bake-muted">{query.trim() ? '当前筛选条件下没有设计。' : '当前还没有设计。'}</div>
           ) : templates.map(item => {
             const active = item.id === selected?.id
             return (
@@ -244,7 +220,6 @@ const BakeTemplatesTab: React.FC<{
                 <div className="bake-muted" style={{ marginTop: 4 }}>{selected.category} · 最近更新 {selected.updatedAt || '—'}</div>
               </div>
               <div className="bake-inline-pills">
-                <BakePill text={bucketMeta[bucket].title} />
                 <BakePill text={formatTemplateStatus(selected.status)} />
                 <BakePill text={formatReviewStatus(selected.reviewStatus)} />
               </div>
@@ -310,6 +285,11 @@ const BakeTemplatesTab: React.FC<{
                   </div>
                   <div className="bake-muted" style={{ marginTop: 6 }}>写作提示：{selected.promptHint || '—'}</div>
                 </div>
+
+                <div className="bake-knowledge-detail__section">
+                  <div className="bake-kv__title">详细描述</div>
+                  <BakeMarkdown content={selected.detailedContent} />
+                </div>
               </>
             )}
 
@@ -327,12 +307,10 @@ const BakeTemplatesTab: React.FC<{
               ) : (
                 <>
                   <BakeButton primary onClick={() => setIsEditing(true)}>编辑模板</BakeButton>
-                  {bucket === 'pending'
+                  {selected.reviewStatus === 'candidate'
                     ? <BakeButton onClick={() => onAdoptTemplate(selected.id)}>采纳模板</BakeButton>
                     : <BakeButton onClick={() => onToggleTemplateStatus(selected.id)}>{selected.status === 'enabled' ? '停用' : '启用'}</BakeButton>}
-                  {bucket === 'pending'
-                    ? <BakeButton onClick={() => onDeleteTemplate(selected.id)}>忽略候选</BakeButton>
-                    : <BakeButton onClick={() => onDeleteTemplate(selected.id)}>删除模板</BakeButton>}
+                  <BakeButton onClick={() => onDeleteTemplate(selected.id)}>删除模板</BakeButton>
                   <BakeButton compact onClick={() => onViewSourceMemory(selected.sourceMemoryIds[0])}>查看来源时间线</BakeButton>
                 </>
               )}
